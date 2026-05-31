@@ -1,0 +1,32 @@
+#
+# Copyright (c) 2024-2025 Nordic Semiconductor
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+config BT_FAST_PAIR_MODEL_ID
+	default 0xE7401F	#SmartTrackBLE
+#	default 0x3C310C	#RSA TAg
+#	default 0x36F824	#COELTracker
+#	default 0xDBA029	#SollatekTracker
+#	default 0x4A436B	#Nordic default
+
+# The Anti-Spoofing Private Key is confidential and must be handled securely.
+# The following key is only used for demonstration purposes and must not be used in production.
+config BT_FAST_PAIR_ANTI_SPOOFING_PRIVATE_KEY
+	default "LxEclLvIginhrUvfNl+82K98PamRbYjSwiqs1/7p3yU="	#SmartTrackBLE
+#	default "JVF9HjkNOXjFg7i8FgK6D7uxeViNCY6v6plb+S0KwK8="	#COELTracker
+#	default "9ZUJX4YZ4eyJlD6H/zWAIsoUksf/1JdTkfjKxsnvFis="	#SollatekTracker
+#	default "rie10A7ONqwd77VmkxGsblPUbMt384qjDgcEJ/ctT9Y="	#Nordic default
+
+config APP_DFU
+	bool "Enable MCUmgr OTA DFU over Bluetooth"
+	default y
+	depends on BOOTLOADER_MCUBOOT || SOC_SERIES_NRF54HX
+	help
+	  This option enables the DFU functionality in this application.
+	  The DFU solution is supported for the MCUboot-based targets
+	  (BOOTLOADER_MCUBOOT Kconfig) and for the SUIT-based targets
+	  (SOC_SERIES_NRF54HX Kconfig).
+
+source "share/sysbuild/Kconfig"
