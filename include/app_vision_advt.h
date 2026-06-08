@@ -53,6 +53,8 @@ int ble_adv_custom_stop(void);
 
 int getVisionId(void);
 
+bt_addr_le_t getVisionMAC(void);
+
 /**
  * @brief Updates the active BLE advertisement payload on-the-fly.
  * * @param svc_data Pointer to the updated Service Data structure.

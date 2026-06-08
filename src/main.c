@@ -25,6 +25,9 @@
 #include "app_ui.h"
 #include "app_vision_advt.h"
 #include "app_vision_custom_services.h"
+#include "app_vision_production.h"
+#include "app_nvs_storage.h"
+#include "app_vision_bootup.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(fp_fmdn, LOG_LEVEL_INF);
@@ -867,9 +870,22 @@ static void init_work_handle(struct k_work *w)
 	fmdn_provisioning_state_init();
 
 	//-------------------------------------------------------------------------------
+	/* 1. Mount the raw file system sectors on the internal flash chip */
+	err = app_nvs_handler_init();
+    if (err) {
+        LOG_ERR("app_nvs_handler_init failed (err %d)", err);
+    }
+
+    /* 2. Boot NVS application data */
+	err = app_storage_verify_and_load();
+    if (err) {
+        LOG_ERR("app_storage_verify_and_load failed (err %d)", err);
+    }
+
 	ble_adv_custom_init();
-	ble_adv_custom_start();
+	//ble_adv_custom_start();
 	ble_custom_service_init();
+	//app_uart_boot_sequence_start();
 
 	k_sem_give(&init_work_sem);
 }

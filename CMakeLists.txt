@@ -44,9 +44,11 @@ target_link_libraries(app PRIVATE app_battery)
   target_link_libraries(app PRIVATE app_motion_detector)
 #endif()
 
-#target_sources(app PRIVATE src/nvs_storage.c)
+target_sources(app PRIVATE src/vision_nvs_storage.c)
 target_sources(app PRIVATE src/vision_advt.c)
 target_sources(app PRIVATE src/vision_custom_services.c)
 target_sources(app PRIVATE src/vision_production.c)
+target_sources(app PRIVATE src/vision_bootup.c)
+target_sources(app PRIVATE src/vision_time_manager.c)
 
 # NORDIC SDK APP END

@@ -14,6 +14,7 @@
 
 #include "app_battery.h"
 #include "app_battery_priv.h"
+//#include "./include/app_vision_production.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(battery, LOG_LEVEL_DBG);
@@ -115,6 +116,22 @@ static uint8_t gu8_Volt2PercentTable(int32_t BatVolt)
 static uint8_t voltage_to_percent_convert(int32_t val)
 {
 	uint8_t per;
+	static uint8_t gu8_BattPercent,gu8_LastBattPercent;
+
+	/*
+	//Reduce Average standby current and calibration current from battery capacity
+	gst_DynamicData.d64_RemainingBatCap -= AVG_DEEPSLEEP_CRNT_uAH;
+	
+	//!< Calculate remaining battery percentage 
+	if(gst_DynamicData.d64_RemainingBatCap<0.0) gst_DynamicData.d64_RemainingBatCap = 0.0;
+	
+	gu8_BattPercent = (uint8_t)((gst_DynamicData.d64_RemainingBatCap / FULL_BAT_CAPACITY_uAH) * DEFAULT_BATT_PER);
+	if(gu8_BattPercent != gu8_LastBattPercent)
+	{
+		gu8_LastBattPercent = gu8_BattPercent;
+		write_nvs_data(CONFIG_DATA_KEY, &gst_ConfigData, sizeof(st_ConfigData_t));
+	}
+	*/
 
 	if(val<3400)
 	{
@@ -122,7 +139,7 @@ static uint8_t voltage_to_percent_convert(int32_t val)
 	}
 	else
 	{
-		per = 100;
+		per = gu8_BattPercent;
 	}
 
 	return (uint8_t) per;

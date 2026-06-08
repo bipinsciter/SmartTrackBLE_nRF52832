@@ -10,7 +10,6 @@
 	/* These aliases are provided for compatibility with samples */
 	aliases {
 		pwm-spk = &pwm_spk0;
-		//sw1 = &button1;
 	};
 
 	/*leds {
@@ -38,7 +37,7 @@
 		button1: button_1 {
 			gpios = <&gpio0 10 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
 			label = "LIS3DH INT";
-			zephyr,code = <INPUT_KEY_4>;
+			zephyr,code = <INPUT_KEY_2>;
 		};
 
 		/*button3: button_3 {

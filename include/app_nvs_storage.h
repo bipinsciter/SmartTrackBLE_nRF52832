@@ -1,5 +1,10 @@
-#ifndef NVS_CONFIG_STORAGE_H_
-#define NVS_CONFIG_STORAGE_H_
+/*
+ * Copyright (c) 2026 Vision Consultancy
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#ifndef NVS_HANDLER_H_
+#define NVS_HANDLER_H_
 
 #include <zephyr/types.h>
 #include <stddef.h>
@@ -8,75 +13,45 @@
 extern "C" {
 #endif
 
-/* -------------------------------------------------------------------- */
-/* 1. Configuration Structures Definitions                               */
-/* -------------------------------------------------------------------- */
+/* Ensure these IDs match your key structure configuration */
+#define PRODUCTION_DATA_KEY  1
+#define CONFIG_DATA_KEY      2
+#define DYNAMIC_DATA_KEY     3
 
 /**
- * @brief Fixed Configuration Structure (512 Bytes)
- * Stored in the dedicated 'fixData_storage' NVS partition.
- * Typically populated during manufacturing or first boot.
+ * @brief Initialize the Non-Volatile Storage (NVS) file system.
+ * * @return 0 if successful, negative system errno value on failure.
  */
-struct fix_config_t {
-    uint32_t magic_number;
-    uint8_t hardware_version;
-    uint8_t production_id[16];
-    uint8_t encryption_key[32];
-    uint8_t reserved[459]; // Padding to maintain structural alignment/footprint
-};
+int app_nvs_handler_init(void);
 
 /**
- * @brief Dynamic Configuration Structure
- * Stored in the dedicated 'DynaData_storage' NVS partition.
- * Frequently updated during standard runtime operation.
+ * @brief Read data from NVS file system.
+ * * @param key_id    The unique identification token/ID for the slot.
+ * @param read_buff Pointer to the buffer where retrieved data is copied.
+ * @param data_len  The expected size of the data to be read.
+ * * @return Number of bytes read on success, or a negative errno on failure.
  */
-struct dyn_config_t {
-    uint32_t boot_count;
-    uint16_t last_calibrated_value;
-    uint8_t device_mode;
-    uint8_t ble_mac_override[6];
-};
-
-/* -------------------------------------------------------------------- */
-/* 2. Public API Functions                                              */
-/* -------------------------------------------------------------------- */
+int read_nvs_data(uint16_t key_id, void *read_buff, size_t data_len);
 
 /**
- * @brief Main power-up initialization function.
- * * This function mounts both NVS storage partitions, reads existing profiles 
- * from non-volatile storage into active RAM instances, and establishes factory 
- * fallback defaults if empty (first boot). Call this early in main().
+ * @brief Write data to NVS file system.
+ * * @param key_id     The unique identification token/ID for the slot.
+ * @param write_buff Pointer to the data payload to be stored.
+ * @param data_len   Length of the data to write.
+ * * @return Number of bytes written on success (0 if data is identical), 
+ * or a negative errno on failure.
  */
-void storage_load_on_powerup(void);
+int write_nvs_data(uint16_t key_id, const void *write_buff, size_t data_len);
 
 /**
- * @brief Commits updated Fixed Configuration data into NVS flash.
- * * @param cfg Pointer to the source fixed config structure to save.
- * @return 0 on success, negative error code from the underlying driver on failure.
+ * @brief Delete data slot from NVS file system.
+ * * @param key_id The unique identification token/ID to be wiped.
+ * * @return 0 if successful, negative system errno value on failure.
  */
-int storage_write_fix_config(const struct fix_config_t *cfg);
-
-/**
- * @brief Commits updated Dynamic Configuration data into NVS flash.
- * * @param cfg Pointer to the source dynamic config structure to save.
- * @return 0 on success, negative error code from the underlying driver on failure.
- */
-int storage_write_dyn_config(const struct dyn_config_t *cfg);
-
-/**
- * @brief Retrieves a copy of the current in-RAM Fixed Configuration data.
- * * @param dest Destination pointer where data will be copied.
- */
-void get_active_fix_config(struct fix_config_t *dest);
-
-/**
- * @brief Retrieves a copy of the current in-RAM Dynamic Configuration data.
- * * @param dest Destination pointer where data will be copied.
- */
-void get_active_dyn_config(struct dyn_config_t *dest);
+int delete_nvs_data(uint16_t key_id);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* NVS_CONFIG_STORAGE_H_ */
+#endif /* NVS_HANDLER_H_ */

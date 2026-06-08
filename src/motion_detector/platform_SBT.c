@@ -31,7 +31,6 @@ LOG_MODULE_DECLARE(lis3dh, LOG_LEVEL_INF);
 #define LIS3DH_CTRL_REG5     0x24
 #define LIS3DH_CTRL_REG6     0x25
 #define LIS3DH_INT1_CFG      0x30
-#define LIS3DH_INT1_SRC      0x31
 #define LIS3DH_INT1_THS      0x32
 #define LIS3DH_INT1_DURATION 0x33
 
@@ -71,14 +70,13 @@ void lis3dh_int_callback(const struct device *port,
                                struct gpio_callback *cb, 
                                gpio_port_pins_t pins)
 {
-    // WARNING: Keep code inside callbacks short; this runs in ISR context!
-    if(gpio_pin_get_dt(&lis3dh_int))
+    if (pins & BIT(lis3dh_int.pin)) 
     {
-        LOG_INF("LIS3DH INT1 HIGH Generated!");
+        LOG_INF("LIS3DH Motion Interrupt Triggered!");
     }
     else
     {
-        LOG_INF("LIS3DH INT1 LOW Generated!");
+        LOG_INF("LIS3DH Motion Interrupt Restored!");
     }
 }
 
@@ -88,6 +86,9 @@ int lis3dh_setup(void)
     int ret;
     uint8_t who = 0;
 
+    // Give the LIS3DH time to fully boot its internal digital structures
+    k_msleep(500);
+    
     LOG_INF("LIS3DH Initialization");
 
     ret = i2c_read_reg(LIS3DH_WHO_AM_I, &who);
@@ -159,7 +160,7 @@ int lis3dh_setup(void)
      * - GPIO_INT_EDGE_TO_ACTIVE : Triggers only when pressed (falling edge if Active Low)
      * - GPIO_INT_EDGE_BOTH      : Triggers on BOTH press and release (dual-edge)
      */
-    ret = gpio_pin_interrupt_configure_dt(&lis3dh_int, GPIO_INT_EDGE_BOTH);
+    ret = gpio_pin_interrupt_configure_dt(&lis3dh_int, GPIO_INT_EDGE_TO_ACTIVE);
     if (ret != 0) {
         LOG_ERR("Error configuring interrupt trigger rules (%d)", ret);
         return ret;
@@ -176,13 +177,13 @@ int lis3dh_setup(void)
     }
 
 	/* 2. Force the driver hardware blocks to sleep completely */
-    ret = pm_device_action_run(i2c_dev, PM_DEVICE_ACTION_SUSPEND);
+    /*ret = pm_device_action_run(i2c_dev, PM_DEVICE_ACTION_SUSPEND);
     if (ret != 0) {
         LOG_ERR("Failed to cleanly place I2C0 block into suspend mode (%d)", ret);
     } else {
         //uart_is_powered = false;
         LOG_INF("I2C0 suspended successfully");
-    }
+    }*/
 
     LOG_INF("LIS3DH configured for wake-on-motion (INT1)");
     return 0;

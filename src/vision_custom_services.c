@@ -1,11 +1,22 @@
+/*
+ * Copyright (c) 2026 Vision Consultancy
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include <zephyr/kernel.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/reboot.h>
 #include <string.h>
+
 #include "app_vision_custom_services.h"
 #include "app_vision_advt.h"
+#include "app_vision_production.h"
+#include "app_vision_bootup.h"
+#include "app_nvs_storage.h"
+#include "app_vision_time_manager.h"
 
 LOG_MODULE_REGISTER(ble_custom_svc, LOG_LEVEL_INF);
 
@@ -14,11 +25,15 @@ LOG_MODULE_REGISTER(ble_custom_svc, LOG_LEVEL_INF);
 /* -------------------------------------------------------------------- */
 static void connected(struct bt_conn *conn, uint8_t err);
 static void disconnected(struct bt_conn *conn, uint8_t reason);
-void send_noti_work_handler(struct k_work *work);
 void exchange_func(struct bt_conn *conn, uint8_t err, struct bt_gatt_exchange_params *params);
+static void ble_parse_and_reply_work_handler(struct k_work *work);
+
+int ble_custom_service_send_notification(struct bt_conn *conn, const uint8_t *data, uint16_t len);
+int ble_custom_service_initiate_disconnect(void);
+void app_graceful_self_restart(void);
 
 /* -------------------------------------------------------------------- */
-/* 1. Private RAM Buffers & Synchronization Variables                  */
+/* 1. Private RAM Buffers & Synchronization Variables                   */
 /* -------------------------------------------------------------------- */
 static uint8_t write_buffer[CUSTOM_MAX_DATA_LEN];
 static uint16_t write_len = 0;
@@ -26,19 +41,27 @@ static uint16_t write_len = 0;
 static uint8_t notify_buffer[CUSTOM_MAX_DATA_LEN];
 static uint16_t notify_len = 0;
 
+static uint8_t active_local_id = 0xFF;
+
 static bool is_notifying_enabled = false;
+static bool bool_UserAuthorization = false;
+static bool bool_ConfigDataWrite = false;
+static bool bool_DynamicDataWrite = false;
 
 static struct bt_conn *current_conn = NULL;
 struct bt_gatt_exchange_params exchange_params;
 
 K_MUTEX_DEFINE(svc_mutex);
-K_WORK_DEFINE(notify_work, send_noti_work_handler);
+
+/* Kernel Work Queue Structures */
+K_WORK_DEFINE(parse_and_reply_work, ble_parse_and_reply_work_handler);
+static struct k_work_delayable authorisation_timout_work;
+static struct k_work_delayable connection_timout_work;
 
 /* -------------------------------------------------------------------- */
 /* 2. GATT Callback Implementations                                     */
 /* -------------------------------------------------------------------- */
 
-// Called when the central client polls the Notify/Read characteristic manually
 static ssize_t read_notify_char(struct bt_conn *conn,
                                 const struct bt_gatt_attr *attr,
                                 void *buf, uint16_t len, uint16_t offset)
@@ -51,7 +74,6 @@ static ssize_t read_notify_char(struct bt_conn *conn,
     return rc;
 }
 
-// Called when the central client pushes data to the Write characteristic
 static ssize_t write_incoming_char(struct bt_conn *conn,
                                    const struct bt_gatt_attr *attr,
                                    const void *buf, uint16_t len,
@@ -65,18 +87,18 @@ static ssize_t write_incoming_char(struct bt_conn *conn,
     }
 
     memcpy(write_buffer + offset, buf, len);
-    
     if (offset + len > write_len) {
         write_len = offset + len;
     }
 
-    LOG_INF("Inbound Data Written: offset %d, len %d, total length %d", offset, len, write_len);
+    LOG_INF("Inbound Data Written: offset %d, len %d, total %d", offset, len, write_len);
+    
+    k_work_submit(&parse_and_reply_work);
 
     k_mutex_unlock(&svc_mutex);
     return len;
 }
 
-// Tracking callback: Monitors if the smartphone activates/deactivates the CCCD toggle
 static void cccd_changed_cb(const struct bt_gatt_attr *attr, uint16_t value)
 {
     k_mutex_lock(&svc_mutex, K_FOREVER);
@@ -86,31 +108,359 @@ static void cccd_changed_cb(const struct bt_gatt_attr *attr, uint16_t value)
 }
 
 /* -------------------------------------------------------------------- */
-/* 3. GATT Service Tree Declaration                                      */
+/* 3. GATT Service Tree Declaration                                     */
 /* -------------------------------------------------------------------- */
-
 BT_GATT_SERVICE_DEFINE(custom_svc,
     BT_GATT_PRIMARY_SERVICE(BT_UUID_CUSTOM_SERVICE),
 
-    // Characteristic 1: Strict WRITE ONLY Access 
     BT_GATT_CHARACTERISTIC(BT_UUID_CUSTOM_WRITE_CHAR,
                            BT_GATT_CHRC_WRITE,
                            BT_GATT_PERM_WRITE,
                            NULL, write_incoming_char, NULL),
 
-    // Characteristic 2: NOTIFY Only Access
     BT_GATT_CHARACTERISTIC(BT_UUID_CUSTOM_NOTIFY_CHAR,
                            BT_GATT_CHRC_NOTIFY,
                            BT_GATT_PERM_READ,
                            read_notify_char, NULL, NULL),
                            
-    // Client Characteristic Configuration Descriptor (CCCD).
     BT_GATT_CCC(cccd_changed_cb, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
 );
 
+static void authorisation_timout_work_handler(struct k_work *work)
+{
+    LOG_WRN("Authorization period expired without valid password submission. Disconnecting client.");
+    ble_custom_service_initiate_disconnect();
+}
+
+static void connection_timout_work_handler(struct k_work *work)
+{
+    LOG_INF("Connection inactivity supervisor timeout reached. Disconnecting.");
+    ble_custom_service_initiate_disconnect();
+}
+
 /* -------------------------------------------------------------------- */
-/* 4. Public Management APIs                                            */
+/* 4. Parsing and Reply Data Worker Execution Loop                      */
 /* -------------------------------------------------------------------- */
+static void ble_parse_and_reply_work_handler(struct k_work *work)
+{
+    uint8_t temp_buf[CUSTOM_MAX_DATA_LEN];
+    uint16_t current_data_len = 0;
+    struct bt_conn *conn_to_use = NULL;
+    
+    /* FIX: Implement thread-isolated scratchpad buffers to eliminate read/write data races */
+    uint8_t local_reply_buf[CUSTOM_MAX_DATA_LEN];
+    uint16_t response_len = 0;
+    
+    bool bool_disconnect = false;
+    bool bool_restart = false;
+
+    k_mutex_lock(&svc_mutex, K_FOREVER);
+    if (write_len > 0) {
+        current_data_len = write_len;
+        memcpy(temp_buf, write_buffer, current_data_len);
+        write_len = 0; 
+    }
+    if (current_conn != NULL) {
+        conn_to_use = bt_conn_ref(current_conn);
+    }
+    k_mutex_unlock(&svc_mutex);
+
+    if (current_data_len == 0 || conn_to_use == NULL) {
+        if (conn_to_use) bt_conn_unref(conn_to_use);
+        return;
+    }
+
+    LOG_INF("Parsing BLE command frame payload. Length: %d", current_data_len);
+    memset(local_reply_buf, 0, sizeof(local_reply_buf));
+    
+    #ifdef AUTHORIZATION_LOGIC 
+    if (!bool_UserAuthorization) {
+        if (temp_buf[COMMAND_ID] != PROVIDE_PASSWORD) {
+            local_reply_buf[0] = FAIL;
+            local_reply_buf[1] = AUTHORIZATION_FAIL;
+            response_len = 2;
+
+            k_work_cancel_delayable(&authorisation_timout_work);
+            bool_disconnect = true;
+        }    
+    }
+    else
+    #endif  
+    {
+        /* Postpone the connectivity timer window */
+        k_work_reschedule(&connection_timout_work, K_SECONDS(DISCC_TIME_SEC));
+
+        switch (temp_buf[COMMAND_ID]) {
+        case PROVIDE_PASSWORD:
+            LOG_INF("Command Code Received: PROVIDE_PASSWORD");
+
+            if (memcmp(&temp_buf[1], &gst_ProductionData.mu8ar_Password[0], MAX_PASSWORD_SIZE) == 0) {
+                #ifdef AUTHORIZATION_LOGIC                  
+                bool_UserAuthorization = true;
+                k_work_cancel_delayable(&authorisation_timout_work);      
+                #endif
+
+                //k_work_schedule(&connection_timout_work, K_SECONDS(DISCC_TIME_SEC));   
+                
+                local_reply_buf[0] = SUCCESS;
+                local_reply_buf[1] = FIRMWARE_MAJOR;
+                local_reply_buf[2] = FIRMWARE_MINOR;  
+                local_reply_buf[3] = 0xFF;
+                local_reply_buf[4] = 0xFF;                
+                local_reply_buf[12] = HARDWARE_MAJOR;
+                local_reply_buf[13] = HARDWARE_MINOR;
+                response_len = 14; 
+            } else {
+                local_reply_buf[0] = FAIL;
+                local_reply_buf[1] = INVALID_PASSWD;  
+                response_len = 2;
+            }
+            break;
+
+        case DEEP_SLEEP_CONTROL:    
+            LOG_INF("Command Code Received: DEEP_SLEEP_CONTROL");
+
+            if (temp_buf[1] == DEEP_SLEEP_ENABLE || temp_buf[1] == DEEP_SLEEP_DISABLE) {
+                gst_ConfigData.mu8_DeepSleepControl = temp_buf[1];
+                bool_ConfigDataWrite = true;
+                local_reply_buf[0] = SUCCESS; 
+                response_len = 1;
+            } else if (temp_buf[1] == BAT_LVL_RST) {
+                gst_DynamicData.d64_RemainingBatCap = FULL_BAT_CAPACITY_uAH;
+                bool_DynamicDataWrite = true;
+                local_reply_buf[0] = SUCCESS; 
+                response_len = 1;
+            } else {
+                local_reply_buf[0] = INVALID_SUB_COMMAND; 
+                response_len = 1;
+            }           
+            break;
+            
+        case RESTART_DEVICE:
+            LOG_INF("Command Code Received: RESTART_DEVICE");      
+            bool_disconnect = true;
+            bool_restart = true;
+            local_reply_buf[0] = SUCCESS;
+            response_len = 1;
+            break;
+
+        case SET_REAL_TIME_CLOCK:
+            LOG_INF("Command Code Received: SET_REAL_TIME_CLOCK"); 
+            memcpy((uint8_t*)&gst_DynamicData.mu32_CurrentTime, &temp_buf[1], sizeof(gst_DynamicData.mu32_CurrentTime));
+            memcpy((uint8_t*)&gst_ConfigData.s16_TimeZoneOffset, &temp_buf[5], sizeof(gst_ConfigData.s16_TimeZoneOffset));        
+            bool_ConfigDataWrite = true;
+            bool_DynamicDataWrite = true;
+
+            /* SAFELY SYNC CLOCK CONTEXT RAM BASES INSTANTLY */
+            app_time_sync_set_utc(gst_DynamicData.mu32_CurrentTime);
+
+            local_reply_buf[0] = SUCCESS;
+            response_len = 1;
+            break;
+
+        case SET_ADV_PERIOD:
+            LOG_INF("Command Code Received: SET_ADV_PERIOD");  
+            uint16_t lu16_temp_var; 
+            memcpy((uint8_t*)&lu16_temp_var, &temp_buf[1], sizeof(lu16_temp_var));
+            if (lu16_temp_var >= 20 && lu16_temp_var <= 10000) {
+                gst_ConfigData.mu16_AdvertismentInterval = lu16_temp_var;
+                bool_ConfigDataWrite = true;    
+                local_reply_buf[0] = SUCCESS;
+            } else {
+                local_reply_buf[0] = FAIL;
+                local_reply_buf[1] = INVALID_VALUE;
+            }
+            response_len = (local_reply_buf[0] == SUCCESS) ? 1 : 2;
+            break;
+        
+        case SET_SENSOR_THRESHOLD:  
+            LOG_INF("Command Code Received: SET_SENSOR_THRESHOLD");
+            gst_ConfigData.mu8_Movement_INT_THS = temp_buf[6];  
+            gst_ConfigData.mu8_Movement_INT_TIME = temp_buf[7]; 
+            bool_ConfigDataWrite = true;    
+            local_reply_buf[0] = SUCCESS;
+            response_len = 1;
+            break;
+
+        case SET_GLOBAL_TX_POW:
+            if (temp_buf[1] == GLOBAL_TX_POW_CONFIG) {
+                LOG_INF("Command Code Received: SET_GLOBAL_TX_POW");
+                gst_ConfigData.mu8_TxPow = temp_buf[3];
+                bool_ConfigDataWrite = true;  
+                local_reply_buf[0] = SUCCESS;
+                response_len = 1;
+            } else {
+                local_reply_buf[0] = FAIL;
+                local_reply_buf[1] = INVALID_SUB_COMMAND; 
+                response_len = 2;
+            }
+            break;
+
+        case SET_ENERGY_SAVE_TIME:
+            if (temp_buf[1] == GLOBAL_ENERGY_SAVE_CONFIG1) {
+                LOG_INF("Command Code Received: GLOBAL_ENERGY_SAVE_CONFIG1");
+                memcpy((uint8_t*)&gst_ConfigData.energy_save_para.u16_StartMinutes, &temp_buf[2], sizeof(gst_ConfigData.energy_save_para.u16_StartMinutes));
+                memcpy((uint8_t*)&gst_ConfigData.energy_save_para.u16_EndMinutes, &temp_buf[4], sizeof(gst_ConfigData.energy_save_para.u16_EndMinutes));
+                bool_ConfigDataWrite = true;
+                local_reply_buf[0] = SUCCESS;
+                response_len = 1;
+            } else {
+                local_reply_buf[0] = FAIL;
+                local_reply_buf[1] = INVALID_SUB_COMMAND; 
+                response_len = 2;
+            }
+            break;
+
+        case SET_INSIGMA_FRAME_POWER_SAVING_PARA:   
+            if (temp_buf[1] == 1) {
+                LOG_INF("Command Code Received: SET_INSIGMA_FRAME_POWER_SAVING_PARA");
+                memcpy((uint8_t*)&gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval, &temp_buf[2], sizeof(gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval));
+                memcpy((uint8_t*)&gst_ConfigData.energy_save_para.mu8_EnergySavingGlobalTxPow, &temp_buf[4], sizeof(gst_ConfigData.energy_save_para.mu8_EnergySavingGlobalTxPow));
+                bool_ConfigDataWrite = true;  
+                local_reply_buf[0] = SUCCESS; 
+                response_len = 1;
+            } else {
+                local_reply_buf[0] = FAIL;
+                local_reply_buf[1] = INVALID_SUB_COMMAND; 
+                response_len = 2;
+            }
+            break;
+
+        case PUT_DEVICE_IN_OTA_DFU_MODE:                                            
+            LOG_INF("Command Code Received: PUT_DEVICE_IN_OTA_DFU_MODE");
+            local_reply_buf[0] = SUCCESS; 
+            response_len = 1;
+            bool_disconnect = true;
+            bool_restart = true;
+            break;
+
+        case READ_BLE_MAC_ADDR:
+            if (temp_buf[1] == 1) {
+                LOG_INF("Command Code Received: READ_BLE_MAC_ADDR");   
+                bt_addr_le_t visionMacAddr = getVisionMAC();
+                local_reply_buf[0] = SUCCESS;
+                for (uint8_t lu8_i1 = 0; lu8_i1 < 6; lu8_i1++) {
+                    local_reply_buf[lu8_i1 + 1] = visionMacAddr.a.val[5 - lu8_i1];
+                }
+                response_len = 7;
+            } else {
+                local_reply_buf[0] = FAIL;
+                local_reply_buf[1] = INVALID_SUB_COMMAND; 
+                response_len = 2;
+            }
+            break;
+                
+        case READ_FIRMWARE_DETAIL:
+            LOG_INF("Command Code Received: GET_FIRMWARE_DETAIL"); 
+            local_reply_buf[0] = SUCCESS;
+            local_reply_buf[1] = FIRMWARE_MAJOR;
+            local_reply_buf[2] = FIRMWARE_MINOR;
+            response_len = 3;
+            break;
+
+        case READ_DIAGNOSTIC_DATA:
+            LOG_INF("Command Code Received: READ_DIAGNOSTIC_DATA");    
+            local_reply_buf[0] = SUCCESS;
+            memcpy(&local_reply_buf[1], (uint8_t*)&gst_DynamicData.mu16_ResetCnt, sizeof(gst_DynamicData.mu16_ResetCnt));       
+            response_len = 1 + sizeof(gst_DynamicData.mu16_ResetCnt);
+            break;
+            
+        case READ_ENERGY_SAVING_PARA:
+            LOG_INF("Command Code Received: READ_ENERGY_SAVING_PARA"); 
+            local_reply_buf[0] = SUCCESS;
+            memcpy(&local_reply_buf[1], (uint8_t*)&gst_ConfigData.energy_save_para.u16_StartMinutes, sizeof(gst_ConfigData.energy_save_para.u16_StartMinutes));     
+            memcpy(&local_reply_buf[3], (uint8_t*)&gst_ConfigData.energy_save_para.u16_EndMinutes, sizeof(gst_ConfigData.energy_save_para.u16_EndMinutes));     
+            response_len = 5;
+            break;  
+
+        default:
+            local_reply_buf[0] = FAIL;
+            local_reply_buf[1] = INVALID_SUB_COMMAND;
+            response_len = 2;
+            break;
+        }
+    }
+    
+    /* Pushes data to notify_buffer safely wrapped behind internal mutex allocations */
+    if (response_len > 0) {
+        (void)ble_custom_service_send_notification(conn_to_use, local_reply_buf, response_len);
+    }
+
+    bt_conn_unref(conn_to_use);
+
+    /* Process physical storage operations outside critical radio loops */
+    if (bool_ConfigDataWrite) {
+        bool_ConfigDataWrite = false;
+        write_nvs_data(CONFIG_DATA_KEY, &gst_ConfigData, sizeof(st_ConfigData_t));
+    }
+
+    if (bool_DynamicDataWrite) {
+        bool_DynamicDataWrite = false;
+        write_nvs_data(DYNAMIC_DATA_KEY, &gst_DynamicData, sizeof(st_DynamicData_t));
+    }
+
+    /* FIX: Let notifications clear the air buffers safely before dropping link or rebooting */
+    if (bool_disconnect || bool_restart) {
+        k_sleep(K_MSEC(60)); 
+    }
+
+    if (bool_disconnect) {
+        ble_custom_service_initiate_disconnect();
+    }
+
+    if (bool_restart) {
+        app_graceful_self_restart();
+    }
+}
+
+/* -------------------------------------------------------------------- */
+/* 5. Public Management APIs                                            */
+/* -------------------------------------------------------------------- */
+
+void app_graceful_self_restart(void)
+{
+    LOG_INF("============================================");
+    LOG_INF("    INITIATING GRACEFUL SYSTEM REBOOT       ");
+    LOG_INF("============================================");
+
+    #if defined(CONFIG_BT)
+    (void)ble_custom_service_initiate_disconnect();
+    #endif
+
+    (void)app_uart_disable();
+    k_sleep(K_MSEC(100));
+
+    LOG_INF("System registers flushed. Executing hardware reset now.\n");
+    k_sleep(K_MSEC(10)); 
+
+    sys_reboot(SYS_REBOOT_COLD);
+}
+
+int ble_custom_service_initiate_disconnect(void)
+{
+    struct bt_conn *conn_to_disconnect = NULL;
+    int rc;
+
+    k_mutex_lock(&svc_mutex, K_FOREVER);
+    if (current_conn != NULL) {
+        conn_to_disconnect = bt_conn_ref(current_conn);
+    }
+    k_mutex_unlock(&svc_mutex);
+
+    if (conn_to_disconnect == NULL) {
+        return -ENOTCONN;
+    }
+
+    k_sleep(K_MSEC(20)); 
+    rc = bt_conn_disconnect(conn_to_disconnect, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+    
+    if (rc) {
+        LOG_ERR("bt_conn_disconnect failed: %d", rc);
+    }
+
+    bt_conn_unref(conn_to_disconnect);
+    return rc;
+}
 
 void exchange_func(struct bt_conn *conn, uint8_t err, struct bt_gatt_exchange_params *params)
 {
@@ -118,8 +468,6 @@ void exchange_func(struct bt_conn *conn, uint8_t err, struct bt_gatt_exchange_pa
         LOG_INF("MTU exchange complete. New MTU: %d", bt_gatt_get_mtu(conn));
     }
 }
-
-static uint8_t active_local_id = 0xFF;
 
 static void connected(struct bt_conn *conn, uint8_t err)
 {
@@ -137,35 +485,22 @@ static void connected(struct bt_conn *conn, uint8_t err)
     current_conn = bt_conn_ref(conn);
     k_mutex_unlock(&svc_mutex);
 
-    
-    /* =========================================================================
-     * FIXED FOR NCS v3.2.4: Use bt_conn_get_id() to safely fetch the local identity
-     * ========================================================================= */
     int rc = bt_conn_get_info(conn, &info);
     if (rc == 0) {
         active_local_id = info.id;
+        LOG_INF("Phone %s connected via ID: %d", addr, active_local_id);
 
-        LOG_INF("Phone %s connected using an alternate identity (ID: %d).", addr, active_local_id);
-
-        if (active_local_id == getVisionId()) 
-        {
-            // Request a larger MTU immediately upon connection
-            exchange_params.func = exchange_func; // Optional callback
+        if (active_local_id == getVisionId()) {
+            exchange_params.func = exchange_func; 
             bt_gatt_exchange_mtu(conn, &exchange_params);
+
+            bool_UserAuthorization = false;
+            
+            /* CRITICAL FIX: Simply schedule the timers here; initialization happens at boot */
+            k_work_schedule(&authorisation_timout_work, K_SECONDS(AUTHO_TOUT_TIME_SEC));
         }
-
-        /*if (active_local_id == 1) {
-            LOG_INF("Connected to phone %s using FP", addr);
-        } else if (active_local_id == getVisionId()) {
-            LOG_INF("Connected to phone %s using Vision", addr);
-            // Request a larger MTU immediately upon connection
-            exchange_params.func = exchange_func; // Optional callback
-            bt_gatt_exchange_mtu(conn, &exchange_params);
-        } else {
-            LOG_INF("Phone %s connected using an alternate identity (ID: %d).", addr, active_local_id);
-        }*/
     } else {
-        LOG_ERR("Failed to safely extract connection metadata parameters (%d)", rc);
+        LOG_ERR("Failed to extract connection info (%d)", rc);
     }
 }
 
@@ -177,19 +512,17 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
         current_conn = NULL;
     }
 
-    if (active_local_id == getVisionId()) 
-    {
+    if (active_local_id == getVisionId()) {
         LOG_INF("Disconnected from Vision Frame (Reason: 0x%02x)", reason);
         active_local_id = 0xFF;
-    }
 
+        bool_UserAuthorization = false;
+        k_work_cancel_delayable(&authorisation_timout_work);
+        k_work_cancel_delayable(&connection_timout_work);
+    }
     k_mutex_unlock(&svc_mutex);
 }
 
-/* =========================================================================
- * FIXED FOR NCS v3.2.4: Use standard BT_CONN_CB_DEFINE macro 
- * This natively registers the handles directly into the app stack.
- * ========================================================================= */
 BT_CONN_CB_DEFINE(conn_callbacks) = {
     .connected = connected,
     .disconnected = disconnected,
@@ -202,9 +535,12 @@ int ble_custom_service_init(void)
     memset(notify_buffer, 0, sizeof(notify_buffer));
     write_len = 0;
     notify_len = 0;
+    
+    /* CRITICAL FIX: Safe unified initialization of delayable timers at boot */
+    k_work_init_delayable(&authorisation_timout_work, authorisation_timout_work_handler);
+    k_work_init_delayable(&connection_timout_work, connection_timout_work_handler);
+    
     k_mutex_unlock(&svc_mutex);
-
-    // Note: Manual registration function removed here because BT_CONN_CB_DEFINE handles it automatically at boot!
 
     LOG_INF("Write and Notification Custom Service tree deployed successfully.");
     return 0;
@@ -217,34 +553,21 @@ int ble_custom_service_send_notification(struct bt_conn *conn, const uint8_t *da
     }
 
     k_mutex_lock(&svc_mutex, K_FOREVER);
-    
-    // Update local cache array 
     memcpy(notify_buffer, data, len);
     notify_len = len;
 
-    // Verify client has subscribed via CCCD toggle action
     if (!is_notifying_enabled) {
         k_mutex_unlock(&svc_mutex);
-        LOG_DBG("Notification skipped: Client has not enabled subscriptions via CCCD.");
         return -EACCES;
     }
-
     k_mutex_unlock(&svc_mutex);
 
     uint16_t negotiated_mtu = bt_gatt_get_mtu(conn);
-    if (negotiated_mtu < (CUSTOM_MAX_DATA_LEN + 3)) {
-        LOG_DBG("MTU too small (%d). Need at least %d. Waiting for exchange...", 
-                negotiated_mtu, CUSTOM_MAX_DATA_LEN + 3);
+    if (negotiated_mtu < (len + 3)) {
         return -EACCES;
     }
 
     int rc = bt_gatt_notify(conn, &custom_svc.attrs[4], data, len);
-    if (rc) {
-        LOG_ERR("Failed to push notification frame over-the-air (%d)", rc);
-    } else {
-        LOG_INF("240-byte notification frame pushed to air successfully.");
-    }
-
     return rc;
 }
 
@@ -266,30 +589,4 @@ int ble_custom_service_get_written_data(uint8_t *out_data, uint16_t *out_len)
     
     k_mutex_unlock(&svc_mutex);
     return 0;
-}
-
-bool is_char2_notification_enabled(struct bt_conn *conn)
-{
-    if (conn == NULL) {
-        return false;
-    }
-    
-    const struct bt_gatt_attr *attr = &custom_svc.attrs[4];
-    return bt_gatt_is_subscribed(conn, attr, BT_GATT_CCC_NOTIFY);
-}
-
-void send_noti_work_handler(struct k_work *work)
-{
-    struct bt_conn *conn_to_use = NULL;
-
-    k_mutex_lock(&svc_mutex, K_FOREVER);
-    if (current_conn != NULL) {
-        conn_to_use = bt_conn_ref(current_conn);
-    }
-    k_mutex_unlock(&svc_mutex);
-
-    if (conn_to_use != NULL) {
-        ble_custom_service_send_notification(conn_to_use, notify_buffer, CUSTOM_MAX_DATA_LEN);
-        bt_conn_unref(conn_to_use);
-    }
 }

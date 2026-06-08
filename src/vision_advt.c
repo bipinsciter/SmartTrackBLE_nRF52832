@@ -17,6 +17,8 @@ static struct ble_service_data_t active_svc_data;
 static struct ble_mfg_data_t active_mfg_data;
 static const uint8_t device_name[] = "SBT-ST12345678";
 
+// Crete BT ID for Vision Custom frame
+bt_addr_le_t VisionMACaddr;
 int Vision_id = -1;
 
 K_MUTEX_DEFINE(adv_mutex);
@@ -54,7 +56,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {   
-    ble_adv_custom_start();
+    //ble_adv_custom_start();
 }
 
 /* =========================================================================
@@ -69,6 +71,11 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 int getVisionId(void)
 {
     return Vision_id;
+}
+
+bt_addr_le_t getVisionMAC(void)
+{
+    return VisionMACaddr;
 }
 
 int ble_adv_custom_init(void)
@@ -89,13 +96,11 @@ int ble_adv_custom_init(void)
         return rc;
     }
 
-    // Crete BT ID for Vision Custom frame
-    bt_addr_le_t addr;
-    bt_addr_le_from_str("F1:01:D3:C4:B5:A6", "random", &addr);
-
+    //bt_addr_le_from_str("F1:01:D3:C4:B5:A6", "random", &addr);
     //addr.type = BT_ADDR_LE_PUBLIC;
 
-    Vision_id = bt_id_create(&addr, NULL); // id1 will usually be 0 or 1
+    // Crete BT ID for Vision Custom frame
+    Vision_id = bt_id_create(NULL, NULL); // id1 will usually be 0 or 1
 	if (Vision_id < 0) {
 		LOG_ERR("Failed to create ID (err %d)\n", Vision_id);
 	}
@@ -103,6 +108,9 @@ int ble_adv_custom_init(void)
 	{
 		LOG_INF("created ID %d\n", Vision_id);
 	}
+
+    /* Pull current identities registered in the stack controller */
+    bt_id_get(&VisionMACaddr, &Vision_id);
 
     struct bt_le_adv_param adv_param =
 	{
