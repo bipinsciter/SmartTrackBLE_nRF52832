@@ -82,7 +82,7 @@ typedef struct __attribute__((packed, aligned(4))) {
 
 typedef struct __attribute__((packed, aligned(4))) {
     uint16_t mu16_MagicNumber;
-    double   d64_RemainingBatCap;
+    float   f32_RemainingBatCap;
     uint16_t mu16_ResetCnt;
     uint32_t mu32_CurrentTime;
 } st_DynamicData_t;

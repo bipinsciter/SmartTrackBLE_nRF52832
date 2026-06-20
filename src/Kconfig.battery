@@ -1,0 +1,13 @@
+#
+# Copyright (c) 2024 Nordic Semiconductor
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+config APP_BATTERY_VOLTAGE_POLL_INTERVAL
+	int "Battery voltage measurement interval [minutes]"
+	default 10
+
+config APP_BATTERY_PERCENTAGE_CAL_INTERVAL
+	int "Activity based Battery percentage calculation interval [minutes]"
+	default 60    

@@ -11,9 +11,9 @@ extern "C" {
 #endif
 
 //---------------------------------------------------------
-#define AUTHORIZATION_LOGIC
+//#define AUTHORIZATION_LOGIC
 #define ENERGY_SAVE_MODE_LOGIC
-#define DISC_FROM_DEVICE
+//#define DISC_FROM_DEVICE
 //---------------------------------------------------------
 #define DEEP_SLEEP_ENABLE						0
 #define DEEP_SLEEP_DISABLE						1
@@ -50,6 +50,11 @@ extern "C" {
 #define READ_DIAGNOSTIC_DATA						160
 #define READ_ENERGY_SAVING_PARA						161
 #define READ_BLE_MAC_ADDR							172
+#define READ_INSIGMA_FRAME_POWER_SAVING_PARA		173
+#define READ_SENSOR_THRESHOLD					    139	
+#define READ_GLOBAL_TX_POW							158
+#define READ_CURRENT_TIME							130	
+#define READ_ASSOCIATION_PARA						169
 
 #define GLOBAL_TX_POW_CONFIG						1
 #define SET_STRT_END_TIME							1

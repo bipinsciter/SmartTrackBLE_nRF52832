@@ -12,15 +12,9 @@ target_include_directories(app_ui PRIVATE include_priv)
 target_sources(app_ui PRIVATE common.c)
 
 if(CONFIG_APP_PLATFORM_DK)
-  #target_sources(app_ui PRIVATE platform_dk.c)
   target_sources(app_ui PRIVATE
     platform_SBT.c
     platform_SBT_Buzzer.c
-  )
-elseif(CONFIG_APP_PLATFORM_THINGY)
-  target_sources(app_ui PRIVATE
-    platform_thingy.c
-    platform_thingy_speaker.c
   )
 else()
   message(FATAL_ERROR "Unsupported platform")

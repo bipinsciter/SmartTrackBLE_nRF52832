@@ -21,7 +21,7 @@ endchoice
 
 rsource "src/Kconfig.dfu"
 rsource "src/ui/Kconfig.ui"
-rsource "src/battery/Kconfig.battery"
+rsource "src/Kconfig.battery"
 
 config SETTINGS
 	default y

@@ -19,7 +19,7 @@ extern "C" {
 
 #define FULL_BAT_CAPACITY_uAH					2160000.0f
 #define AVG_DEEPSLEEP_CRNT_uAH					14.0f
-#define DEFAULT_BATT_PER					    100
+#define DEFAULT_BATT_PER					    100.0f
 
 
 #define DEEP_SLEEP_ENABLE						0
@@ -51,6 +51,8 @@ int app_storage_verify_and_load(void);
  * @brief Formats and outputs the complete storage array matrix to the serial log interface.
  */
 void app_storage_dump_debug_logs(void);
+
+void get_factory_mac_copy(uint8_t *dest_buf);
 
 #ifdef __cplusplus
 }

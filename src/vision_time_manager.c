@@ -10,6 +10,7 @@
 #include "app_vision_custom_services.h"
 #include "app_vision_production.h"
 #include "app_vision_time_manager.h"
+#include "app_vision_advt.h"
 
 LOG_MODULE_REGISTER(time_mgr, LOG_LEVEL_INF);
 
@@ -46,6 +47,10 @@ void app_time_sync_set_utc(uint32_t u32_IncomingEpochSeconds)
     s64_BaseUptimeTicks = k_uptime_ticks();
     s64_BaseUtcEpoch = (int64_t)u32_IncomingEpochSeconds;
     bool_IsTimeSynchronized = true;
+
+    static_retained_time.u32_LastSavedUtcEpoch = app_time_get_utc_epoch();
+    static_retained_time.s64_LastSavedUptimeMs = k_uptime_get();
+    static_retained_time.u32_MagicMarker = TIME_MAGIC_VALIDATED;
 
     k_mutex_unlock(&time_mutex);
 
@@ -131,15 +136,9 @@ bool app_time_is_within_energy_saving_window(void)
 
 static void time_supervisor_work_handler(struct k_work *work)
 {
-    /* 1. Check if the eco power-saving parameters apply */
-    if (app_time_is_within_energy_saving_window()) {
-        /* Shift advertising rates and radio parameters to lower brackets */
-        LOG_INF("Device is inside Energy Saving frame window. Applying Eco profile rules.");
-        // bt_le_adv_update_parameters(...);
-    } else {
-        /* Apply standard field performance rules */
-        // restore_standard_advertising_rates();
-    }
+    /* 2. Reschedule this check to execute again in exactly 1 minute.
+     * The device sleeps completely during this 60-second window. */
+    k_work_schedule(&time_supervisor_work, K_SECONDS(60));
 
     if (bool_IsTimeSynchronized) {
         /* Continuously store a backup copy of the time parameters into retained RAM */
@@ -147,18 +146,40 @@ static void time_supervisor_work_handler(struct k_work *work)
         static_retained_time.s64_LastSavedUptimeMs = k_uptime_get();
         static_retained_time.u32_MagicMarker = TIME_MAGIC_VALIDATED;
     }
+    else{
 
-    /* 2. Reschedule this check to execute again in exactly 1 minute.
-     * The device sleeps completely during this 60-second window. */
-    k_work_schedule(&time_supervisor_work, K_SECONDS(60));
-}
+        return;
+    }
 
-void app_time_activities_init(void)
-{
-    k_work_init_delayable(&time_supervisor_work, time_supervisor_work_handler);
-    
-    /* Fire off the first evaluation cycle */
-    k_work_schedule(&time_supervisor_work, K_NO_WAIT);
+    static bool Advtflag = false;
+
+    /* 1. Check if the eco power-saving parameters apply */
+    if (app_time_is_within_energy_saving_window()) {
+        
+        LOG_INF("Device is inside Energy Saving frame window. Applying Eco profile rules.");
+
+        if(!Advtflag)
+        {
+            //ble_adv_custom_stop();
+            //app_ui_request_broadcast(APP_UI_REQUEST_FMDN_ADV_MODE_CHANGE);
+            //ble_adv_custom_update_interval(gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval, gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval+10);
+            //ble_adv_custom_start();
+
+            Advtflag = true;
+        }
+
+    } else {
+
+        if(Advtflag)
+        {
+            //ble_adv_custom_stop();
+            //app_ui_request_broadcast(APP_UI_REQUEST_FMDN_ADV_MODE_CHANGE);
+            //ble_adv_custom_update_interval(gst_ConfigData.mu16_AdvertismentInterval, gst_ConfigData.mu16_AdvertismentInterval+10);
+            //ble_adv_custom_start();
+
+            Advtflag = false;
+        }
+    }
 }
 
 void app_time_manager_boot_recover(void)
@@ -183,4 +204,16 @@ void app_time_manager_boot_recover(void)
 
     k_mutex_unlock(&time_mutex);
 }
+
+void app_time_activities_init(void)
+{
+    app_time_manager_boot_recover();
+
+    k_work_init_delayable(&time_supervisor_work, time_supervisor_work_handler);
+    
+    /* Fire off the first evaluation cycle */
+    k_work_schedule(&time_supervisor_work, K_NO_WAIT);
+}
+
+
 

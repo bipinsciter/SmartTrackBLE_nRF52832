@@ -377,12 +377,12 @@ static void btn_handle(uint32_t button_state, uint32_t has_changed)
 					app_ui_request_broadcast(APP_UI_REQUEST_FACTORY_RESET);
 				
 					/* Initiate factory reset */
-					int err;
+					/*int err;
 					err = app_factory_reset_init();
 					if (err) {
 						LOG_ERR("FMDN: app_factory_reset_init failed (err %d)", err);
 						return;
-					}
+					}*/
 				} 
 				else 
 				{

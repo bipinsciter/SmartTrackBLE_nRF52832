@@ -331,14 +331,9 @@ void ProcessProductionMsg(const uint8_t *data, size_t len)
         
         case TOOL_READ_BLE_MAC_OF_DUT_CMD:					//Read public random static MAC of device
             
-            bt_addr_le_t visionMacAddr = getVisionMAC();
-
             tx_buf[0] = 8;
             tx_buf[1] = TOOL_READ_BLE_MAC_OF_DUT_CMD | 0x80;
-            for(lu8_i1=0;lu8_i1<6;lu8_i1++)
-            {
-                tx_buf[lu8_i1+2] = visionMacAddr.a.val[5-lu8_i1];
-            }	
+            get_factory_mac_copy(&tx_buf[2]);
             tx_buf[8] = FindChecksum(tx_buf,8);
             app_uart_transmit(tx_buf,9);	
             

@@ -29,4 +29,6 @@ uint16_t app_time_get_local_minutes_of_day(void);
  */
 bool app_time_is_within_energy_saving_window(void);
 
+void app_time_activities_init(void);
+
 #endif /* APP_TIME_MANAGER_H_ */

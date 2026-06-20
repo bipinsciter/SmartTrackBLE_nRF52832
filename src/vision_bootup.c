@@ -20,6 +20,15 @@ LOG_MODULE_REGISTER(nvs_mgr, LOG_LEVEL_INF);
 #define CONFIG_MAGIC_NUMBER       0x5643  /* "VC" - Vision Configuration */
 #define DYNAMIC_MAGIC_NUMBER      0x5644  /* "VD" - Vision Dynamic */
 
+static uint8_t factory_mac[BLE_GAP_ADDR_LEN];
+
+void get_factory_mac_copy(uint8_t *dest_buf)
+{
+    if (dest_buf != NULL) {
+        memcpy(dest_buf, factory_mac, BLE_GAP_ADDR_LEN);
+    }
+}
+
 /* -------------------------------------------------------------------- */
 /* Debug Parameter Dump Utility                                         */
 /* -------------------------------------------------------------------- */
@@ -57,16 +66,16 @@ void app_storage_dump_debug_logs(void)
             CONFIG_DATA_KEY, sizeof(st_ConfigData_t));
     LOG_INF("  -> Magic Number   : 0x%04X (Expected: 0x%04X)", 
             gst_ConfigData.mu16_MagicNumber, CONFIG_MAGIC_NUMBER);
-    LOG_INF("  -> Adv Interval   : %d Ticks (%d ms)", 
-            gst_ConfigData.mu16_AdvertismentInterval, (int)(gst_ConfigData.mu16_AdvertismentInterval * 0.625f));
+    LOG_INF("  -> Adv Interval   : %d ms", 
+            gst_ConfigData.mu16_AdvertismentInterval);
     LOG_INF("  -> TX Power Level : 0x%02X (%d dBm equivalent)", 
             gst_ConfigData.mu8_TxPow, (int8_t)gst_ConfigData.mu8_TxPow);
-    LOG_INF("  -> Motion Thresh  : 0x%02X (~%d mg)", 
-            gst_ConfigData.mu8_Movement_INT_THS, gst_ConfigData.mu8_Movement_INT_THS * 16);
+    LOG_INF("  -> Motion Thresh  : 0x%02X", 
+            gst_ConfigData.mu8_Movement_INT_THS);
     LOG_INF("  -> Motion Duration: 0x%02X ODR Samples", 
             gst_ConfigData.mu8_Movement_INT_TIME);
     LOG_INF("  -> Deep Sleep Ctrl: %d (%s)", 
-            gst_ConfigData.mu8_DeepSleepControl, gst_ConfigData.mu8_DeepSleepControl ? "DEEP SLEEP ON" : "NORMAL RUN");
+            gst_ConfigData.mu8_DeepSleepControl, gst_ConfigData.mu8_DeepSleepControl ? "DEEP SLEEP DISABLE" : "DEEP SLEEP ENABLE");
     LOG_INF("  -> Time Zone Off  : %d minutes (GMT %+d:%02d)", 
             gst_ConfigData.s16_TimeZoneOffset, gst_ConfigData.s16_TimeZoneOffset / 60, abs(gst_ConfigData.s16_TimeZoneOffset % 60));
 
@@ -75,7 +84,7 @@ void app_storage_dump_debug_logs(void)
     LOG_INF("    -> Window Frame : %02d:%02d to %02d:%02d", 
             gst_ConfigData.energy_save_para.u16_StartMinutes / 60, gst_ConfigData.energy_save_para.u16_StartMinutes % 60,
             gst_ConfigData.energy_save_para.u16_EndMinutes / 60, gst_ConfigData.energy_save_para.u16_EndMinutes % 60);
-    LOG_INF("    -> Eco Adv Int  : %d Ticks", gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval);
+    LOG_INF("    -> Eco Adv Int  : %d msec", gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval);
     LOG_INF("    -> Eco Tx Power : 0x%02X (%d dBm)", 
             gst_ConfigData.energy_save_para.mu8_EnergySavingGlobalTxPow, (int8_t)gst_ConfigData.energy_save_para.mu8_EnergySavingGlobalTxPow);
     
@@ -89,9 +98,9 @@ void app_storage_dump_debug_logs(void)
     
     /* Zephyr logger defaults to picolibc printing configurations. 
      * To print double/float values reliably, cast or expand out components if toolchain flags restrict float formatting strings. */
-    LOG_INF("  -> Cell Capacity : %d%% (Raw Float Representation)", (int)gst_DynamicData.d64_RemainingBatCap);
+    LOG_INF("  -> Cell Capacity : %d%% (mAh)", (int)gst_DynamicData.f32_RemainingBatCap);
     LOG_INF("  -> HW Boot Count : %u successful power cycles", gst_DynamicData.mu16_ResetCnt);
-    LOG_INF("  -> Internal Time : %u seconds active tracking", gst_DynamicData.mu32_CurrentTime);
+    LOG_INF("  -> Internal Time : %u seconds epoch", gst_DynamicData.mu32_CurrentTime);
     
     LOG_INF("=======================================================");
 }
@@ -100,12 +109,13 @@ void app_storage_dump_debug_logs(void)
 /* Local Default Configuration Initializers                             */
 /* -------------------------------------------------------------------- */
 
+uint8_t insigma_mac_info[6] = {DEFAULT_MAC};
 static void load_factory_production_defaults(st_ProductionData_t *prod)
 {
     prod->mu16_MagicNumber = PRODUCTION_MAGIC_NUMBER;
-    
-    /* Default factory placeholders if empty */
-    memset(prod->mu8ar_MACAddr, 0x00, BLE_GAP_ADDR_LEN);
+
+    //memset(prod->mu8ar_MACAddr, 0x00, BLE_GAP_ADDR_LEN);
+    memcpy(prod->mu8ar_MACAddr, insigma_mac_info, BLE_GAP_ADDR_LEN);
     memcpy(prod->mu8_SerialNumber, DEFAULT_SRNUM, SR_NUM_SIZE);
     memset(prod->mu8ar_Password, 0, MAX_PASSWORD_SIZE);
     strncpy((char *)prod->mu8ar_Password, DEFAULT_PASSWORD, MAX_PASSWORD_SIZE - 1);
@@ -115,7 +125,8 @@ static void load_factory_production_defaults(st_ProductionData_t *prod)
 static void load_field_config_defaults(st_ConfigData_t *config)
 {
     config->mu16_MagicNumber = CONFIG_MAGIC_NUMBER;
-    config->mu16_AdvertismentInterval = DEFAULT_ADV_INTERVAL;   /* 2000 ms in BLE ticks */
+
+    config->mu16_AdvertismentInterval = DEFAULT_ADV_INTERVAL;   /* 2000 ms  */
     config->mu8_TxPow = DEFAULT_TX_POWER;                       /* 4 dBm default */
     config->mu8_Movement_INT_THS = 10;                          /* ~250mg threshold */
     config->mu8_Movement_INT_TIME = 10;                         /* Minimal duration constraint */
@@ -132,10 +143,31 @@ static void load_field_config_defaults(st_ConfigData_t *config)
 static void load_dynamic_runtime_defaults(st_DynamicData_t *dynamic)
 {
     dynamic->mu16_MagicNumber = DYNAMIC_MAGIC_NUMBER;
-    dynamic->d64_RemainingBatCap = FULL_BAT_CAPACITY_uAH; /* 100% full capacity cell */
+    
+    dynamic->f32_RemainingBatCap = FULL_BAT_CAPACITY_uAH; /* 100% full capacity cell */
     dynamic->mu16_ResetCnt = 0;
     dynamic->mu32_CurrentTime = DEFAULT_TIME;
 }
+
+void read_raw_factory_mac(uint8_t *mac_out)
+{
+    /* Copy lower 32-bits */
+    uint32_t addr_low = NRF_FICR->DEVICEADDR[0];
+    /* Copy upper 16-bits */
+    uint32_t addr_high = NRF_FICR->DEVICEADDR[1];
+
+    mac_out[0] = (uint8_t)(addr_low & 0xFF);
+    mac_out[1] = (uint8_t)((addr_low >> 8) & 0xFF);
+    mac_out[2] = (uint8_t)((addr_low >> 16) & 0xFF);
+    mac_out[3] = (uint8_t)((addr_low >> 24) & 0xFF);
+    mac_out[4] = (uint8_t)(addr_high & 0xFF);
+    /* For standard BLE compliance, enforce the two MSBs of index 5 as 11 */
+    mac_out[5] = (uint8_t)((addr_high >> 8) & 0xFF) | 0xC0; 
+
+    LOG_INF("Raw Hardware MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+           mac_out[5], mac_out[4], mac_out[3], mac_out[2], mac_out[1], mac_out[0]);
+}
+
 
 /* -------------------------------------------------------------------- */
 /* Core Startup Verification Logic                                      */
@@ -167,7 +199,7 @@ int app_storage_verify_and_load(void)
         }
         LOG_INF("Success: Default Factory Production Data initialized.");
     } else {
-        LOG_INF("Success: Valid Factory Production Data loaded. Serial: %.16s", gst_ProductionData.mu8_SerialNumber);
+        LOG_INF("Success: Valid Factory Production Data loaded");
     }
 
     /* =========================================================================
@@ -188,7 +220,7 @@ int app_storage_verify_and_load(void)
         }
         LOG_INF("Success: Standard System Operational Profiles initialized.");
     } else {
-        LOG_INF("Success: Valid User Configuration parameters loaded. Adv Interval: %d", gst_ConfigData.mu16_AdvertismentInterval);
+        LOG_INF("Success: Valid User Configuration parameters loaded.");
     }
 
     /* =========================================================================
@@ -212,7 +244,7 @@ int app_storage_verify_and_load(void)
         /* Increment reset counter since valid historical data exists */
         gst_DynamicData.mu16_ResetCnt++;
         
-        LOG_INF("Success: Dynamic Context loaded. Total Device Boots Detected: %d", gst_DynamicData.mu16_ResetCnt);
+        LOG_INF("Success: Dynamic Context loaded.");
         
         /* Quietly update just the incremented reset count value back to flash cache */
         (void)write_nvs_data(DYNAMIC_DATA_KEY, &gst_DynamicData, sizeof(st_DynamicData_t));
@@ -220,6 +252,7 @@ int app_storage_verify_and_load(void)
 
     /* Execute the dump profile print immediately after successful verification and loading */
     app_storage_dump_debug_logs();
+    read_raw_factory_mac(&factory_mac[0]);
 
     LOG_INF("All device configuration profiles verified. Proceeding to application launch.");
     return 0;

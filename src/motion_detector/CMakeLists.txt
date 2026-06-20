@@ -14,11 +14,6 @@ if(CONFIG_APP_PLATFORM_DK)
   #target_sources(app_motion_detector PRIVATE platform_dk.c)
   target_sources(app_motion_detector PRIVATE platform_SBT.c)
   add_dependencies(app_motion_detector offsets_h)
-elseif(CONFIG_APP_PLATFORM_THINGY)
-  target_sources(app_motion_detector PRIVATE platform_thingy.c)
-  # Workaround build order issue related to offsets.h not being generated
-  # before the platform_thingy.c file which includes it is built.
-  add_dependencies(app_motion_detector offsets_h)
 else()
   message(FATAL_ERROR "Unsupported platform")
 endif()

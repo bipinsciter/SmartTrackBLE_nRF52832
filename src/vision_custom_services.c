@@ -47,6 +47,7 @@ static bool is_notifying_enabled = false;
 static bool bool_UserAuthorization = false;
 static bool bool_ConfigDataWrite = false;
 static bool bool_DynamicDataWrite = false;
+static bool bool_AdvtIntervalUpdated = false;
 
 static struct bt_conn *current_conn = NULL;
 struct bt_gatt_exchange_params exchange_params;
@@ -55,8 +56,14 @@ K_MUTEX_DEFINE(svc_mutex);
 
 /* Kernel Work Queue Structures */
 K_WORK_DEFINE(parse_and_reply_work, ble_parse_and_reply_work_handler);
+
+#ifdef AUTHORIZATION_LOGIC
 static struct k_work_delayable authorisation_timout_work;
+#endif
+
+#ifdef DISC_FROM_DEVICE
 static struct k_work_delayable connection_timout_work;
+#endif
 
 /* -------------------------------------------------------------------- */
 /* 2. GATT Callback Implementations                                     */
@@ -126,24 +133,28 @@ BT_GATT_SERVICE_DEFINE(custom_svc,
     BT_GATT_CCC(cccd_changed_cb, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
 );
 
+#ifdef AUTHORIZATION_LOGIC
 static void authorisation_timout_work_handler(struct k_work *work)
 {
-    LOG_WRN("Authorization period expired without valid password submission. Disconnecting client.");
+    LOG_WRN("Authorization Timeout");
     ble_custom_service_initiate_disconnect();
 }
+#endif
 
+#ifdef DISC_FROM_DEVICE
 static void connection_timout_work_handler(struct k_work *work)
 {
-    LOG_INF("Connection inactivity supervisor timeout reached. Disconnecting.");
+    LOG_INF("Connection inactivity timeout");
     ble_custom_service_initiate_disconnect();
 }
+#endif
 
 /* -------------------------------------------------------------------- */
 /* 4. Parsing and Reply Data Worker Execution Loop                      */
 /* -------------------------------------------------------------------- */
 static void ble_parse_and_reply_work_handler(struct k_work *work)
 {
-    uint8_t temp_buf[CUSTOM_MAX_DATA_LEN];
+    uint8_t temp_buf[CUSTOM_MAX_DATA_LEN]={0};
     uint16_t current_data_len = 0;
     struct bt_conn *conn_to_use = NULL;
     
@@ -171,37 +182,36 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
     }
 
     LOG_INF("Parsing BLE command frame payload. Length: %d", current_data_len);
+    LOG_HEXDUMP_INF(temp_buf, current_data_len, "Command Payload:");
     memset(local_reply_buf, 0, sizeof(local_reply_buf));
     
     #ifdef AUTHORIZATION_LOGIC 
-    if (!bool_UserAuthorization) {
-        if (temp_buf[COMMAND_ID] != PROVIDE_PASSWORD) {
+    if (!bool_UserAuthorization) 
+    {
+        if (temp_buf[COMMAND_ID] != PROVIDE_PASSWORD) 
+        {
+
             local_reply_buf[0] = FAIL;
             local_reply_buf[1] = AUTHORIZATION_FAIL;
             response_len = 2;
+            bool_disconnect = true;
 
             k_work_cancel_delayable(&authorisation_timout_work);
-            bool_disconnect = true;
         }    
-    }
-    else
-    #endif  
-    {
-        /* Postpone the connectivity timer window */
-        k_work_reschedule(&connection_timout_work, K_SECONDS(DISCC_TIME_SEC));
-
-        switch (temp_buf[COMMAND_ID]) {
-        case PROVIDE_PASSWORD:
+        else
+        {
             LOG_INF("Command Code Received: PROVIDE_PASSWORD");
 
             if (memcmp(&temp_buf[1], &gst_ProductionData.mu8ar_Password[0], MAX_PASSWORD_SIZE) == 0) {
-                #ifdef AUTHORIZATION_LOGIC                  
+                
+                LOG_INF("Authentication Successfull");              
                 bool_UserAuthorization = true;
                 k_work_cancel_delayable(&authorisation_timout_work);      
+
+                #ifdef DISC_FROM_DEVICE
+                k_work_schedule(&connection_timout_work, K_SECONDS(DISCC_TIME_SEC));   
                 #endif
 
-                //k_work_schedule(&connection_timout_work, K_SECONDS(DISCC_TIME_SEC));   
-                
                 local_reply_buf[0] = SUCCESS;
                 local_reply_buf[1] = FIRMWARE_MAJOR;
                 local_reply_buf[2] = FIRMWARE_MINOR;  
@@ -214,170 +224,251 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
                 local_reply_buf[0] = FAIL;
                 local_reply_buf[1] = INVALID_PASSWD;  
                 response_len = 2;
+                bool_disconnect = true;
             }
-            break;
+        }
+    }
+    else
+    #endif  
+    {
+        #ifdef DISC_FROM_DEVICE
+        /* Postpone the connectivity timer window */
+        k_work_reschedule(&connection_timout_work, K_SECONDS(DISCC_TIME_SEC));
+        #endif
 
-        case DEEP_SLEEP_CONTROL:    
-            LOG_INF("Command Code Received: DEEP_SLEEP_CONTROL");
-
-            if (temp_buf[1] == DEEP_SLEEP_ENABLE || temp_buf[1] == DEEP_SLEEP_DISABLE) {
-                gst_ConfigData.mu8_DeepSleepControl = temp_buf[1];
+        switch (temp_buf[COMMAND_ID]) 
+        {
+            case DEEP_SLEEP_CONTROL:    
+                LOG_INF("Command Code Received: DEEP_SLEEP_CONTROL");
+                if (temp_buf[1] == DEEP_SLEEP_ENABLE || temp_buf[1] == DEEP_SLEEP_DISABLE) {
+                    gst_ConfigData.mu8_DeepSleepControl = temp_buf[1];
+                    bool_ConfigDataWrite = true;
+                    local_reply_buf[0] = SUCCESS; 
+                    response_len = 1;
+                } else if (temp_buf[1] == BAT_LVL_RST) {
+                    gst_DynamicData.f32_RemainingBatCap = FULL_BAT_CAPACITY_uAH;
+                    bool_DynamicDataWrite = true;
+                    local_reply_buf[0] = SUCCESS; 
+                    response_len = 1;
+                } else {
+                    local_reply_buf[0] = INVALID_SUB_COMMAND; 
+                    response_len = 1;
+                    bool_disconnect = true;
+                }           
+                break;
+                
+            case SET_REAL_TIME_CLOCK:
+                LOG_INF("Command Code Received: SET_REAL_TIME_CLOCK"); 
+                memcpy((uint8_t*)&gst_DynamicData.mu32_CurrentTime, &temp_buf[1], sizeof(gst_DynamicData.mu32_CurrentTime));
+                memcpy((uint8_t*)&gst_ConfigData.s16_TimeZoneOffset, &temp_buf[5], sizeof(gst_ConfigData.s16_TimeZoneOffset));        
                 bool_ConfigDataWrite = true;
-                local_reply_buf[0] = SUCCESS; 
-                response_len = 1;
-            } else if (temp_buf[1] == BAT_LVL_RST) {
-                gst_DynamicData.d64_RemainingBatCap = FULL_BAT_CAPACITY_uAH;
                 bool_DynamicDataWrite = true;
-                local_reply_buf[0] = SUCCESS; 
+
+                /* SAFELY SYNC CLOCK CONTEXT RAM BASES INSTANTLY */
+                app_time_sync_set_utc(gst_DynamicData.mu32_CurrentTime);
+
+                local_reply_buf[0] = SUCCESS;
                 response_len = 1;
-            } else {
-                local_reply_buf[0] = INVALID_SUB_COMMAND; 
-                response_len = 1;
-            }           
-            break;
+                break;
+
+            case READ_CURRENT_TIME:
+                LOG_INF("Command Code Received: READ_CURRENT_TIME"); 
+                local_reply_buf[0] = SUCCESS;
+                memcpy(&local_reply_buf[1], (uint8_t*)&gst_DynamicData.mu32_CurrentTime, sizeof(gst_DynamicData.mu32_CurrentTime));
+                response_len = 5;
+                break;  
+
+            case READ_ASSOCIATION_PARA:
+                if (temp_buf[1] == 6) {
+                    LOG_INF("Command Code Received: READ_TIME_ZONE"); 
+                    local_reply_buf[0] = SUCCESS;
+                    local_reply_buf[1] = 6;
+                    memcpy(&local_reply_buf[2], (uint8_t*)&gst_ConfigData.s16_TimeZoneOffset, sizeof(gst_ConfigData.s16_TimeZoneOffset));        
+                    response_len = 4;
+                } else {
+                    local_reply_buf[0] = FAIL;
+                    local_reply_buf[1] = INVALID_SUB_COMMAND; 
+                    response_len = 2;
+                    bool_disconnect = true;
+                }
+                break;  
+
+            case SET_ADV_PERIOD:
+                LOG_INF("Command Code Received: SET_ADV_PERIOD");  
+                uint16_t lu16_temp_var; 
+                memcpy((uint8_t*)&lu16_temp_var, &temp_buf[1], sizeof(lu16_temp_var));
+                if (lu16_temp_var >= 100 && lu16_temp_var <= 5000) {
+                    gst_ConfigData.mu16_AdvertismentInterval = lu16_temp_var;
+
+                    k_mutex_lock(&svc_mutex, K_FOREVER);
+                    bool_AdvtIntervalUpdated = true;
+                    k_mutex_unlock(&svc_mutex);
+
+                    bool_ConfigDataWrite = true;    
+                    local_reply_buf[0] = SUCCESS;
+                } else {
+                    local_reply_buf[0] = FAIL;
+                    local_reply_buf[1] = INVALID_VALUE;
+                    bool_disconnect = true;
+                }
+                response_len = (local_reply_buf[0] == SUCCESS) ? 1 : 2;
+                break;
             
-        case RESTART_DEVICE:
-            LOG_INF("Command Code Received: RESTART_DEVICE");      
-            bool_disconnect = true;
-            bool_restart = true;
-            local_reply_buf[0] = SUCCESS;
-            response_len = 1;
-            break;
+            case SET_GLOBAL_TX_POW:
+                if (temp_buf[1] == GLOBAL_TX_POW_CONFIG) {
+                    LOG_INF("Command Code Received: SET_GLOBAL_TX_POW");
+                    gst_ConfigData.mu8_TxPow = temp_buf[3];
+                    bool_ConfigDataWrite = true;  
+                    local_reply_buf[0] = SUCCESS;
+                    response_len = 1;
+                } else {
+                    local_reply_buf[0] = FAIL;
+                    local_reply_buf[1] = INVALID_SUB_COMMAND; 
+                    response_len = 2;
+                    bool_disconnect = true;
+                }
+                break;
 
-        case SET_REAL_TIME_CLOCK:
-            LOG_INF("Command Code Received: SET_REAL_TIME_CLOCK"); 
-            memcpy((uint8_t*)&gst_DynamicData.mu32_CurrentTime, &temp_buf[1], sizeof(gst_DynamicData.mu32_CurrentTime));
-            memcpy((uint8_t*)&gst_ConfigData.s16_TimeZoneOffset, &temp_buf[5], sizeof(gst_ConfigData.s16_TimeZoneOffset));        
-            bool_ConfigDataWrite = true;
-            bool_DynamicDataWrite = true;
+            case READ_GLOBAL_TX_POW:
+                if (temp_buf[1] == GLOBAL_TX_POW_CONFIG) {
+                    LOG_INF("Command Code Received: READ_GLOBAL_TX_POW"); 
+                    local_reply_buf[0] = SUCCESS;
+                    local_reply_buf[1] = GLOBAL_TX_POW_CONFIG;
+                    local_reply_buf[2] = GLOBAL_TX_POW_CONFIG;
+                    local_reply_buf[3] = gst_ConfigData.mu8_TxPow;
+                    response_len = 4;
+                } else {
+                    local_reply_buf[0] = FAIL;
+                    local_reply_buf[1] = INVALID_SUB_COMMAND; 
+                    response_len = 2;
+                    bool_disconnect = true;
+                }
+                break;  
 
-            /* SAFELY SYNC CLOCK CONTEXT RAM BASES INSTANTLY */
-            app_time_sync_set_utc(gst_DynamicData.mu32_CurrentTime);
-
-            local_reply_buf[0] = SUCCESS;
-            response_len = 1;
-            break;
-
-        case SET_ADV_PERIOD:
-            LOG_INF("Command Code Received: SET_ADV_PERIOD");  
-            uint16_t lu16_temp_var; 
-            memcpy((uint8_t*)&lu16_temp_var, &temp_buf[1], sizeof(lu16_temp_var));
-            if (lu16_temp_var >= 20 && lu16_temp_var <= 10000) {
-                gst_ConfigData.mu16_AdvertismentInterval = lu16_temp_var;
+            case SET_SENSOR_THRESHOLD:  
+                LOG_INF("Command Code Received: SET_SENSOR_THRESHOLD");
+                gst_ConfigData.mu8_Movement_INT_THS = temp_buf[6];  
+                gst_ConfigData.mu8_Movement_INT_TIME = temp_buf[7]; 
                 bool_ConfigDataWrite = true;    
                 local_reply_buf[0] = SUCCESS;
-            } else {
-                local_reply_buf[0] = FAIL;
-                local_reply_buf[1] = INVALID_VALUE;
-            }
-            response_len = (local_reply_buf[0] == SUCCESS) ? 1 : 2;
-            break;
-        
-        case SET_SENSOR_THRESHOLD:  
-            LOG_INF("Command Code Received: SET_SENSOR_THRESHOLD");
-            gst_ConfigData.mu8_Movement_INT_THS = temp_buf[6];  
-            gst_ConfigData.mu8_Movement_INT_TIME = temp_buf[7]; 
-            bool_ConfigDataWrite = true;    
-            local_reply_buf[0] = SUCCESS;
-            response_len = 1;
-            break;
+                response_len = 1;
+                break;
 
-        case SET_GLOBAL_TX_POW:
-            if (temp_buf[1] == GLOBAL_TX_POW_CONFIG) {
-                LOG_INF("Command Code Received: SET_GLOBAL_TX_POW");
-                gst_ConfigData.mu8_TxPow = temp_buf[3];
-                bool_ConfigDataWrite = true;  
+            case READ_SENSOR_THRESHOLD:
+                LOG_INF("Command Code Received: READ_SENSOR_THRESHOLD"); 
+                local_reply_buf[0] = SUCCESS;
+                local_reply_buf[2] = gst_ConfigData.mu8_Movement_INT_THS;
+                local_reply_buf[3] = gst_ConfigData.mu8_Movement_INT_TIME;
+                memcpy(&local_reply_buf[4], (uint8_t*)&gst_ConfigData.mu16_AdvertismentInterval, sizeof(gst_ConfigData.mu16_AdvertismentInterval));
+                response_len = 6;
+                break;  
+
+            case SET_ENERGY_SAVE_TIME:
+                if (temp_buf[1] == GLOBAL_ENERGY_SAVE_CONFIG1) {
+                    LOG_INF("Command Code Received: GLOBAL_ENERGY_SAVE_CONFIG1");
+                    memcpy((uint8_t*)&gst_ConfigData.energy_save_para.u16_StartMinutes, &temp_buf[2], sizeof(gst_ConfigData.energy_save_para.u16_StartMinutes));
+                    memcpy((uint8_t*)&gst_ConfigData.energy_save_para.u16_EndMinutes, &temp_buf[4], sizeof(gst_ConfigData.energy_save_para.u16_EndMinutes));
+                    bool_ConfigDataWrite = true;
+                    local_reply_buf[0] = SUCCESS;
+                    response_len = 1;
+                } else {
+                    local_reply_buf[0] = FAIL;
+                    local_reply_buf[1] = INVALID_SUB_COMMAND; 
+                    response_len = 2;
+                    bool_disconnect = true;
+                }
+                break;
+
+            case READ_ENERGY_SAVING_PARA:
+                LOG_INF("Command Code Received: READ_ENERGY_SAVING_PARA"); 
+                local_reply_buf[0] = SUCCESS;
+                memcpy(&local_reply_buf[1], (uint8_t*)&gst_ConfigData.energy_save_para.u16_StartMinutes, sizeof(gst_ConfigData.energy_save_para.u16_StartMinutes));     
+                memcpy(&local_reply_buf[3], (uint8_t*)&gst_ConfigData.energy_save_para.u16_EndMinutes, sizeof(gst_ConfigData.energy_save_para.u16_EndMinutes));     
+                response_len = 5;
+                break;  
+
+            case SET_INSIGMA_FRAME_POWER_SAVING_PARA:   
+                if (temp_buf[1] == 1) {
+                    LOG_INF("Command Code Received: SET_INSIGMA_FRAME_POWER_SAVING_PARA");
+                    memcpy((uint8_t*)&gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval, &temp_buf[2], sizeof(gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval));
+                    memcpy((uint8_t*)&gst_ConfigData.energy_save_para.mu8_EnergySavingGlobalTxPow, &temp_buf[4], sizeof(gst_ConfigData.energy_save_para.mu8_EnergySavingGlobalTxPow));
+                    bool_ConfigDataWrite = true;  
+                    local_reply_buf[0] = SUCCESS; 
+                    response_len = 1;
+                } else {
+                    local_reply_buf[0] = FAIL;
+                    local_reply_buf[1] = INVALID_SUB_COMMAND; 
+                    response_len = 2;
+                    bool_disconnect = true;
+                }
+                break;
+
+            case READ_INSIGMA_FRAME_POWER_SAVING_PARA:   
+                if (temp_buf[1] == 1) {
+                    LOG_INF("Command Code Received: READ_INSIGMA_FRAME_POWER_SAVING_PARA");
+                    local_reply_buf[0] = SUCCESS; 
+                    memcpy(&local_reply_buf[1], (uint8_t*)&gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval, sizeof(gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval));
+                    memcpy(&local_reply_buf[3], (uint8_t*)&gst_ConfigData.energy_save_para.mu8_EnergySavingGlobalTxPow, sizeof(gst_ConfigData.energy_save_para.mu8_EnergySavingGlobalTxPow));
+                    response_len = 4;
+                } else {
+                    local_reply_buf[0] = FAIL;
+                    local_reply_buf[1] = INVALID_SUB_COMMAND; 
+                    response_len = 2;
+                    bool_disconnect = true;
+                }
+                break;
+
+            case RESTART_DEVICE:
+                LOG_INF("Command Code Received: RESTART_DEVICE");      
+                bool_disconnect = true;
+                bool_restart = true;
                 local_reply_buf[0] = SUCCESS;
                 response_len = 1;
-            } else {
-                local_reply_buf[0] = FAIL;
-                local_reply_buf[1] = INVALID_SUB_COMMAND; 
-                response_len = 2;
-            }
-            break;
+                break;
 
-        case SET_ENERGY_SAVE_TIME:
-            if (temp_buf[1] == GLOBAL_ENERGY_SAVE_CONFIG1) {
-                LOG_INF("Command Code Received: GLOBAL_ENERGY_SAVE_CONFIG1");
-                memcpy((uint8_t*)&gst_ConfigData.energy_save_para.u16_StartMinutes, &temp_buf[2], sizeof(gst_ConfigData.energy_save_para.u16_StartMinutes));
-                memcpy((uint8_t*)&gst_ConfigData.energy_save_para.u16_EndMinutes, &temp_buf[4], sizeof(gst_ConfigData.energy_save_para.u16_EndMinutes));
-                bool_ConfigDataWrite = true;
-                local_reply_buf[0] = SUCCESS;
-                response_len = 1;
-            } else {
-                local_reply_buf[0] = FAIL;
-                local_reply_buf[1] = INVALID_SUB_COMMAND; 
-                response_len = 2;
-            }
-            break;
-
-        case SET_INSIGMA_FRAME_POWER_SAVING_PARA:   
-            if (temp_buf[1] == 1) {
-                LOG_INF("Command Code Received: SET_INSIGMA_FRAME_POWER_SAVING_PARA");
-                memcpy((uint8_t*)&gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval, &temp_buf[2], sizeof(gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval));
-                memcpy((uint8_t*)&gst_ConfigData.energy_save_para.mu8_EnergySavingGlobalTxPow, &temp_buf[4], sizeof(gst_ConfigData.energy_save_para.mu8_EnergySavingGlobalTxPow));
-                bool_ConfigDataWrite = true;  
+            case PUT_DEVICE_IN_OTA_DFU_MODE:                                            
+                LOG_INF("Command Code Received: PUT_DEVICE_IN_OTA_DFU_MODE");
                 local_reply_buf[0] = SUCCESS; 
                 response_len = 1;
-            } else {
-                local_reply_buf[0] = FAIL;
-                local_reply_buf[1] = INVALID_SUB_COMMAND; 
-                response_len = 2;
-            }
-            break;
+                bool_disconnect = true;
+                bool_restart = true;
+                break;
 
-        case PUT_DEVICE_IN_OTA_DFU_MODE:                                            
-            LOG_INF("Command Code Received: PUT_DEVICE_IN_OTA_DFU_MODE");
-            local_reply_buf[0] = SUCCESS; 
-            response_len = 1;
-            bool_disconnect = true;
-            bool_restart = true;
-            break;
-
-        case READ_BLE_MAC_ADDR:
-            if (temp_buf[1] == 1) {
-                LOG_INF("Command Code Received: READ_BLE_MAC_ADDR");   
-                bt_addr_le_t visionMacAddr = getVisionMAC();
-                local_reply_buf[0] = SUCCESS;
-                for (uint8_t lu8_i1 = 0; lu8_i1 < 6; lu8_i1++) {
-                    local_reply_buf[lu8_i1 + 1] = visionMacAddr.a.val[5 - lu8_i1];
+            case READ_BLE_MAC_ADDR:
+                if (temp_buf[1] == 1) {
+                    LOG_INF("Command Code Received: READ_BLE_MAC_ADDR");   
+                    local_reply_buf[0] = SUCCESS;
+                    get_factory_mac_copy(&local_reply_buf[1]);
+                    response_len = 7;
+                } else {
+                    local_reply_buf[0] = FAIL;
+                    local_reply_buf[1] = INVALID_SUB_COMMAND; 
+                    response_len = 2;
+                    bool_disconnect = true;
                 }
-                response_len = 7;
-            } else {
-                local_reply_buf[0] = FAIL;
-                local_reply_buf[1] = INVALID_SUB_COMMAND; 
-                response_len = 2;
-            }
-            break;
+                break;
+                    
+            case READ_FIRMWARE_DETAIL:
+                LOG_INF("Command Code Received: GET_FIRMWARE_DETAIL"); 
+                local_reply_buf[0] = SUCCESS;
+                local_reply_buf[1] = FIRMWARE_MAJOR;
+                local_reply_buf[2] = FIRMWARE_MINOR;
+                response_len = 3;
+                break;
+
+            case READ_DIAGNOSTIC_DATA:
+                LOG_INF("Command Code Received: READ_DIAGNOSTIC_DATA");    
+                local_reply_buf[0] = SUCCESS;
+                memcpy(&local_reply_buf[1], (uint8_t*)&gst_DynamicData.mu16_ResetCnt, sizeof(gst_DynamicData.mu16_ResetCnt));       
+                response_len = 1 + sizeof(gst_DynamicData.mu16_ResetCnt);
+                break;
                 
-        case READ_FIRMWARE_DETAIL:
-            LOG_INF("Command Code Received: GET_FIRMWARE_DETAIL"); 
-            local_reply_buf[0] = SUCCESS;
-            local_reply_buf[1] = FIRMWARE_MAJOR;
-            local_reply_buf[2] = FIRMWARE_MINOR;
-            response_len = 3;
-            break;
-
-        case READ_DIAGNOSTIC_DATA:
-            LOG_INF("Command Code Received: READ_DIAGNOSTIC_DATA");    
-            local_reply_buf[0] = SUCCESS;
-            memcpy(&local_reply_buf[1], (uint8_t*)&gst_DynamicData.mu16_ResetCnt, sizeof(gst_DynamicData.mu16_ResetCnt));       
-            response_len = 1 + sizeof(gst_DynamicData.mu16_ResetCnt);
-            break;
-            
-        case READ_ENERGY_SAVING_PARA:
-            LOG_INF("Command Code Received: READ_ENERGY_SAVING_PARA"); 
-            local_reply_buf[0] = SUCCESS;
-            memcpy(&local_reply_buf[1], (uint8_t*)&gst_ConfigData.energy_save_para.u16_StartMinutes, sizeof(gst_ConfigData.energy_save_para.u16_StartMinutes));     
-            memcpy(&local_reply_buf[3], (uint8_t*)&gst_ConfigData.energy_save_para.u16_EndMinutes, sizeof(gst_ConfigData.energy_save_para.u16_EndMinutes));     
-            response_len = 5;
-            break;  
-
-        default:
-            local_reply_buf[0] = FAIL;
-            local_reply_buf[1] = INVALID_SUB_COMMAND;
-            response_len = 2;
-            break;
+            default:
+                local_reply_buf[0] = FAIL;
+                local_reply_buf[1] = INVALID_SUB_COMMAND;
+                response_len = 2;
+                bool_disconnect = true;
+                break;
         }
     }
     
@@ -391,16 +482,22 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
     /* Process physical storage operations outside critical radio loops */
     if (bool_ConfigDataWrite) {
         bool_ConfigDataWrite = false;
+        LOG_INF("Config Para Updated");
         write_nvs_data(CONFIG_DATA_KEY, &gst_ConfigData, sizeof(st_ConfigData_t));
     }
 
     if (bool_DynamicDataWrite) {
         bool_DynamicDataWrite = false;
+        LOG_INF("Dynamic Para Updated");
         write_nvs_data(DYNAMIC_DATA_KEY, &gst_DynamicData, sizeof(st_DynamicData_t));
     }
 
     /* FIX: Let notifications clear the air buffers safely before dropping link or rebooting */
     if (bool_disconnect || bool_restart) {
+        #ifdef DISC_FROM_DEVICE
+        k_work_cancel_delayable(&connection_timout_work);
+        #endif
+
         k_sleep(K_MSEC(60)); 
     }
 
@@ -496,8 +593,10 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
             bool_UserAuthorization = false;
             
+            #ifdef AUTHORIZATION_LOGIC
             /* CRITICAL FIX: Simply schedule the timers here; initialization happens at boot */
             k_work_schedule(&authorisation_timout_work, K_SECONDS(AUTHO_TOUT_TIME_SEC));
+            #endif
         }
     } else {
         LOG_ERR("Failed to extract connection info (%d)", rc);
@@ -506,6 +605,9 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
+    bool need_interval_update = false;
+    bool start_advt = false;
+
     k_mutex_lock(&svc_mutex, K_FOREVER);
     if (current_conn == conn) {
         bt_conn_unref(current_conn);
@@ -516,11 +618,33 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
         LOG_INF("Disconnected from Vision Frame (Reason: 0x%02x)", reason);
         active_local_id = 0xFF;
 
+        /* Isolate and capture the flag state safely under the local service mutex */
+        if (bool_AdvtIntervalUpdated) {
+            need_interval_update = true;
+            bool_AdvtIntervalUpdated = false;
+        }
+
+        start_advt = true;
+
         bool_UserAuthorization = false;
+        #ifdef AUTHORIZATION_LOGIC
         k_work_cancel_delayable(&authorisation_timout_work);
+        #endif
+
+        #ifdef DISC_FROM_DEVICE
         k_work_cancel_delayable(&connection_timout_work);
+        #endif
     }
     k_mutex_unlock(&svc_mutex);
+
+    /* Safe execution area: Free from local mutex locks to prevent deadlocking adv_mutex */
+    if (need_interval_update) {
+        (void)ble_adv_custom_update_interval(gst_ConfigData.mu16_AdvertismentInterval, 
+                                             gst_ConfigData.mu16_AdvertismentInterval + 10);
+    }
+
+    /* Restarts the connectable advertisement set cleanly */
+    if(start_advt) ble_adv_custom_start();
 }
 
 BT_CONN_CB_DEFINE(conn_callbacks) = {
@@ -536,10 +660,15 @@ int ble_custom_service_init(void)
     write_len = 0;
     notify_len = 0;
     
+    #ifdef AUTHORIZATION_LOGIC
     /* CRITICAL FIX: Safe unified initialization of delayable timers at boot */
     k_work_init_delayable(&authorisation_timout_work, authorisation_timout_work_handler);
+    #endif
+
+    #ifdef DISC_FROM_DEVICE
     k_work_init_delayable(&connection_timout_work, connection_timout_work_handler);
-    
+    #endif
+
     k_mutex_unlock(&svc_mutex);
 
     LOG_INF("Write and Notification Custom Service tree deployed successfully.");

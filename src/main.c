@@ -14,13 +14,14 @@
 #include <bluetooth/services/fast_pair/fast_pair.h>
 #include <bluetooth/services/fast_pair/fmdn.h>
 
-#include "app_battery.h"
+//#include "app_battery.h"
 #include "app_dfu.h"
 #include "app_factory_reset.h"
 #include "app_fp_adv.h"
  
 #include "app_motion_detector.h"
 
+#include "app_battery.h"
 #include "app_ring.h"
 #include "app_ui.h"
 #include "app_vision_advt.h"
@@ -28,6 +29,7 @@
 #include "app_vision_production.h"
 #include "app_nvs_storage.h"
 #include "app_vision_bootup.h"
+#include "app_vision_time_manager.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(fp_fmdn, LOG_LEVEL_INF);
@@ -101,13 +103,11 @@ static enum factory_reset_trigger factory_reset_trigger;
 static void fmdn_provisioning_state_init(void);
 static void init_work_handle(struct k_work *w);
 static void stop_discoverable_adv(struct k_work *work);
-static void stop_non_discoverable_adv(struct k_work *work);
 
 static K_SEM_DEFINE(init_work_sem, 0, 1);
 static K_WORK_DEFINE(init_work, init_work_handle);
 
 K_WORK_DELAYABLE_DEFINE(stop_discoverable_work, stop_discoverable_adv);
-K_WORK_DELAYABLE_DEFINE(stop_non_discoverable_work, stop_non_discoverable_adv);
 
 /* To stop discoverable advertisement on timeout if provisioning not done */ 
 static void stop_discoverable_adv(struct k_work *work)
@@ -117,38 +117,6 @@ static void stop_discoverable_adv(struct k_work *work)
     /* Disable advertising due to timeout and no provisioning happened */
 	fp_adv_ui_request = false;
 	app_fp_adv_request(&fp_adv_trigger_ui, fp_adv_ui_request);
-}
-
-/* To toggle stop and start non_discoverable advertisement after power up */ 
-static void stop_non_discoverable_adv(struct k_work *work)
-{
-	static bool toggle = false;
-
-	if(fp_adv_clock_sync_done)
-	{
-		toggle = false;
-
-		LOG_INF("Stop Toggle non discoverable advertisement timer\n");
-		// Stop timeout as provisioning done before timeout
-    	k_work_cancel_delayable(&stop_non_discoverable_work);
-	}
-	else
-	{
-		LOG_INF("Toggle non discoverable advertisement\n");
-
-		toggle = !toggle;
-
-		if(toggle)
-		{
-			app_fp_adv_request(&fp_adv_trigger_clock_sync, false);
-			k_work_schedule(&stop_non_discoverable_work,K_MINUTES(NDISC_ADV_TIMEOUT_OFF_MS));
-		}
-		else
-		{
-			app_fp_adv_request(&fp_adv_trigger_clock_sync, true);
-			k_work_schedule(&stop_non_discoverable_work,K_MINUTES(NDISC_ADV_TIMEOUT_ON_MS));
-		}
-	}
 }
 
 static void fmdn_provisioning_state_set(bool provisioned)
@@ -649,10 +617,15 @@ static void fmdn_provisioning_state_init(void)
 	//app_fp_adv_request(&fp_adv_trigger_clock_sync, provisioned);
 	//fp_adv_clock_sync_enabled = true;
 
-	/*if(provisioned == true)
+	if(provisioned == true)
 	{
-		k_work_schedule(&stop_non_discoverable_work,K_MINUTES(NDISC_ADV_TIMEOUT_ON_MS));
-	}*/
+		int err = 0;
+		err = ble_adv_custom_start();
+		if (err) {
+			LOG_ERR("Vision: ble_adv_custom_start (err %d)", err);
+			return;
+		}
+	}
 	
 	//fp_adv_ui_request = !provisioned;
 	//app_fp_adv_request(&fp_adv_trigger_ui, fp_adv_ui_request);
@@ -883,8 +856,9 @@ static void init_work_handle(struct k_work *w)
     }
 
 	ble_adv_custom_init();
-	//ble_adv_custom_start();
+	ble_adv_custom_start();
 	ble_custom_service_init();
+	app_time_activities_init();
 	//app_uart_boot_sequence_start();
 
 	k_sem_give(&init_work_sem);
