@@ -14,6 +14,7 @@
 #include "app_vision_production.h"
 #include "app_nvs_storage.h"
 #include "app_vision_advt.h"
+#include "app_vision_bootup.h"
 
 /* Fallback definitions in case they aren't resolved out of app_nvs_storage.h */
 #ifndef PRODUCTION_DATA_KEY
@@ -106,6 +107,14 @@ static void uart_async_callback(const struct device *dev,
 /* -------------------------------------------------------------------- */
 static void uart_lifetime_timeout_handler(struct k_work *work)
 {
+    /*
+    tx_buf[0] = '1';
+    tx_buf[1] = '2';
+    tx_buf[2] = '3';
+    tx_buf[3] = '4';
+    app_uart_transmit(tx_buf, 4);
+    k_sleep(K_MSEC(500));
+    */
     app_uart_disable();
 }
 
@@ -433,19 +442,16 @@ void ProcessProductionMsg(const uint8_t *data, size_t len)
     /* Process NVS writes sequentially outside the ISR context */
     if (bool_ProductionDataWrite) {
         bool_ProductionDataWrite = false;
-        LOG_INF("Production Para Updated");
         write_nvs_data(PRODUCTION_DATA_KEY, &gst_ProductionData, sizeof(st_ProductionData_t));
     }
 
     if (bool_ConfigDataWrite) {
         bool_ConfigDataWrite = false;
-        LOG_INF("Config Para Updated");
         write_nvs_data(CONFIG_DATA_KEY, &gst_ConfigData, sizeof(st_ConfigData_t));
     }
 
     if (bool_DynamicDataWrite) {
         bool_DynamicDataWrite = false;
-        LOG_INF("Dynamic Para Updated");
         write_nvs_data(DYNAMIC_DATA_KEY, &gst_DynamicData, sizeof(st_DynamicData_t));
     }
 }

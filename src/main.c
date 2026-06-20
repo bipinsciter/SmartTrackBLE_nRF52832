@@ -859,7 +859,7 @@ static void init_work_handle(struct k_work *w)
 	ble_adv_custom_start();
 	ble_custom_service_init();
 	app_time_activities_init();
-	//app_uart_boot_sequence_start();
+	app_uart_boot_sequence_start();
 
 	k_sem_give(&init_work_sem);
 }
