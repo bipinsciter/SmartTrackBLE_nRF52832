@@ -50,7 +50,7 @@ LOG_MODULE_DECLARE(lis3dh, LOG_LEVEL_INF);
 static const struct device *i2c_dev = DEVICE_DT_GET(DT_NODELABEL(i2c0));
 
 #define LIS3DH_INT  DT_ALIAS(sw1)
-static const struct gpio_dt_spec lis3dh_int = GPIO_DT_SPEC_GET(LIS3DH_INT, gpios);
+static const struct gpio_dt_spec lis3dh_int = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), signal_gpios);
 static struct gpio_callback lis3dh_int_cb_data;
 
 static bool motion_detector_active;
@@ -70,13 +70,13 @@ void lis3dh_int_callback(const struct device *port,
                                struct gpio_callback *cb, 
                                gpio_port_pins_t pins)
 {
-    if (pins & BIT(lis3dh_int.pin)) 
-    {
-        LOG_INF("LIS3DH Motion Interrupt Triggered!");
-    }
-    else
-    {
+    /* Read the immediate state of the pin to determine which edge occurred */
+    int pin_state = gpio_pin_get_dt(&lis3dh_int);
+
+    if (pin_state > 0) {
         LOG_INF("LIS3DH Motion Interrupt Restored!");
+    } else {
+        LOG_INF("LIS3DH Motion Interrupt Triggered!");
     }
 }
 
@@ -160,7 +160,7 @@ int lis3dh_setup(void)
      * - GPIO_INT_EDGE_TO_ACTIVE : Triggers only when pressed (falling edge if Active Low)
      * - GPIO_INT_EDGE_BOTH      : Triggers on BOTH press and release (dual-edge)
      */
-    ret = gpio_pin_interrupt_configure_dt(&lis3dh_int, GPIO_INT_EDGE_TO_ACTIVE);
+    ret = gpio_pin_interrupt_configure_dt(&lis3dh_int, GPIO_INT_EDGE_BOTH);
     if (ret != 0) {
         LOG_ERR("Error configuring interrupt trigger rules (%d)", ret);
         return ret;

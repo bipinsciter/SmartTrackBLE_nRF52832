@@ -182,7 +182,7 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
     }
 
     LOG_INF("Parsing BLE command frame payload. Length: %d", current_data_len);
-    LOG_HEXDUMP_INF(temp_buf, current_data_len, "Command Payload:");
+    //LOG_HEXDUMP_INF(temp_buf, current_data_len, "Command Payload:");
     memset(local_reply_buf, 0, sizeof(local_reply_buf));
     
     #ifdef AUTHORIZATION_LOGIC 

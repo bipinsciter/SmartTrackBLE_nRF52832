@@ -254,192 +254,198 @@ void ProcessProductionMsg(const uint8_t *data, size_t len)
     if (lu8_checksum == data[len - 1]) {
         k_work_reschedule(&uart_lifetime_timeout_work, K_MINUTES(UART_DISABLE_TIMEOUT_MIN));
         
-        switch (data[UART_RX_MSG_COMMAND_IND]) {
-        case TOOL_RESET_CMD:
-            tx_buf[0] = 3;
-            tx_buf[1] = TOOL_RESET_CMD | 0x80;
-            tx_buf[2] = SUCCESS;
-            tx_buf[3] = FindChecksum(tx_buf, 3);
-            app_uart_transmit(tx_buf, 4);
-            break;
-            
-        case TOOL_PUT_DEEP_SLEEP_CMD:
-            gst_ConfigData.mu8_DeepSleepControl = 1;
-            bool_ConfigDataWrite = true;
-
-            tx_buf[0] = 3;
-            tx_buf[1] = TOOL_PUT_DEEP_SLEEP_CMD | 0x80;
-            tx_buf[2] = SUCCESS;
-            tx_buf[3] = FindChecksum(tx_buf, 3);
-            app_uart_transmit(tx_buf, 4);        
-            break;
-            
-        case TOOL_SET_DEFULT_PASSW:
-            memset(gst_ProductionData.mu8ar_Password, 0, sizeof(gst_ProductionData.mu8ar_Password));
-            memcpy(&gst_ProductionData.mu8ar_Password, &data[2], sizeof(gst_ProductionData.mu8ar_Password));
-            bool_ProductionDataWrite = true;
-
-            tx_buf[0] = 3;
-            tx_buf[1] = data[UART_RX_MSG_COMMAND_IND] | 0x80;
-            tx_buf[2] = SUCCESS;
-            tx_buf[3] = FindChecksum(tx_buf, 3);
-            app_uart_transmit(tx_buf, 4); 
-            break;
-            
-        case TOOL_SET_SERIAL_OF_DUT_CMD:
-            memset(gst_ProductionData.mu8_SerialNumber, 0, sizeof(gst_ProductionData.mu8_SerialNumber));
-            memcpy(gst_ProductionData.mu8_SerialNumber, &data[2], sizeof(gst_ProductionData.mu8_SerialNumber));
-            bool_ProductionDataWrite = true;  
-        
-            tx_buf[0] = 3;
-            tx_buf[1] = TOOL_SET_SERIAL_OF_DUT_CMD | 0x80;
-            tx_buf[2] = SUCCESS;
-            tx_buf[3] = FindChecksum(tx_buf, 3);
-            app_uart_transmit(tx_buf, 4);    
-            break;
-            
-        case TOOL_SET_MAC_OF_DUT_CMD:
-            for (lu8_i1 = 0; lu8_i1 < 6; lu8_i1++) {
-                gst_ProductionData.mu8ar_MACAddr[5 - lu8_i1] = data[lu8_i1 + 2];
-            }   
-            bool_ProductionDataWrite = true;  
-            
-            tx_buf[0] = 3;
-            tx_buf[1] = TOOL_SET_MAC_OF_DUT_CMD | 0x80;
-            tx_buf[2] = SUCCESS;
-            tx_buf[3] = FindChecksum(tx_buf, 3);
-            app_uart_transmit(tx_buf, 4);    
-            break;
+        switch (data[UART_RX_MSG_COMMAND_IND]) 
+        {
+            case TOOL_RESET_CMD:
+                tx_buf[0] = 3;
+                tx_buf[1] = TOOL_RESET_CMD | 0x80;
+                tx_buf[2] = SUCCESS;
+                tx_buf[3] = FindChecksum(tx_buf, 3);
+                app_uart_transmit(tx_buf, 4);
+                break;
                 
-        case TOOL_READ_SERIAL_OF_DUT_CMD:
-            tx_buf[0] = 20;
-            tx_buf[1] = TOOL_READ_SERIAL_OF_DUT_CMD | 0x80;             
-            memcpy(&tx_buf[2], (uint8_t*)gst_ProductionData.mu8_SerialNumber, sizeof(gst_ProductionData.mu8_SerialNumber));
-            tx_buf[20] = FindChecksum(tx_buf, 20);
-            app_uart_transmit(tx_buf, 21);   
-            break;
-            
-        case TOOL_READ_MAC_OF_DUT_CMD:
-            tx_buf[0] = 8;
-            tx_buf[1] = TOOL_READ_MAC_OF_DUT_CMD | 0x80;
-            for (lu8_i1 = 0; lu8_i1 < 6; lu8_i1++) {
-                tx_buf[lu8_i1 + 2] = gst_ProductionData.mu8ar_MACAddr[5 - lu8_i1];
-            }   
-            tx_buf[8] = FindChecksum(tx_buf, 8);
-            app_uart_transmit(tx_buf, 9);    
-            break;
-        
-        case TOOL_READ_BLE_MAC_OF_DUT_CMD:					//Read public random static MAC of device
-            
-            tx_buf[0] = 8;
-            tx_buf[1] = TOOL_READ_BLE_MAC_OF_DUT_CMD | 0x80;
-            get_factory_mac_copy(&tx_buf[2]);
-            tx_buf[8] = FindChecksum(tx_buf,8);
-            app_uart_transmit(tx_buf,9);	
-            
-            break;
+            case TOOL_PUT_DEEP_SLEEP_CMD:
+                gst_ConfigData.mu8_DeepSleepControl = 0;
+                bool_ConfigDataWrite = true;
 
-        case TOOL_SET_DUT_CONFG_CMD:
-            memcpy((uint8_t*)&gst_ConfigData.mu16_AdvertismentInterval, &data[3], sizeof(gst_ConfigData.mu16_AdvertismentInterval));
-            gst_ConfigData.mu8_TxPow = data[5];
-            bool_ConfigDataWrite = true;  
-        
-            tx_buf[0] = 3;
-            tx_buf[1] = TOOL_SET_DUT_CONFG_CMD | 0x80;
-            tx_buf[2] = SUCCESS;
-            tx_buf[3] = FindChecksum(tx_buf, 3);
-            app_uart_transmit(tx_buf, 4);    
-            break;
-
-        case TOOL_READ_FW_VER_CMD:
-            tx_buf[0] = 6;
-            tx_buf[1] = TOOL_READ_FW_VER_CMD | 0x80;
-            tx_buf[2] = FIRMWARE_MAJOR;
-            tx_buf[3] = FIRMWARE_MINOR;
-            tx_buf[4] = HARDWARE_MAJOR;
-            tx_buf[5] = HARDWARE_MINOR;         
-            tx_buf[6] = FindChecksum(tx_buf, 6);
-            app_uart_transmit(tx_buf, 7);    
-            break;
-
-        case TOOL_SET_CLOCK_CMD:
-            memcpy((uint8_t*)&gst_DynamicData.mu32_CurrentTime, &data[2], sizeof(gst_DynamicData.mu32_CurrentTime));
-            memcpy((uint8_t*)&gst_ConfigData.s16_TimeZoneOffset, &data[6], sizeof(gst_ConfigData.s16_TimeZoneOffset));              
-            bool_ConfigDataWrite = true;  
-            bool_DynamicDataWrite = true;
-
-            tx_buf[0] = 3;
-            tx_buf[1] = TOOL_SET_CLOCK_CMD | 0x80;
-            tx_buf[2] = SUCCESS;
-            tx_buf[3] = FindChecksum(tx_buf, 3);
-            app_uart_transmit(tx_buf, 4); 
-            break;             
-            
-        case TOOL_SET_DEVICE_CONFIG:
-            switch (data[UART_RX_MSG_SUB_COMMAND_IND]) {
-            case 0:
-                memcpy(gst_ProductionData.mu8ar_ModelNumber, &data[3], sizeof(gst_ProductionData.mu8ar_ModelNumber));
+                tx_buf[0] = 3;
+                tx_buf[1] = TOOL_PUT_DEEP_SLEEP_CMD | 0x80;
+                tx_buf[2] = SUCCESS;
+                tx_buf[3] = FindChecksum(tx_buf, 3);
+                app_uart_transmit(tx_buf, 4);        
+                break;
+                
+            case TOOL_SET_DEFULT_PASSW:
+                memset(gst_ProductionData.mu8ar_Password, 0, sizeof(gst_ProductionData.mu8ar_Password));
+                memcpy(&gst_ProductionData.mu8ar_Password, &data[2], sizeof(gst_ProductionData.mu8ar_Password));
                 bool_ProductionDataWrite = true;
-                tx_buf[0] = 4;
-                tx_buf[1] = TOOL_SET_DEVICE_CONFIG | 0x80;
-                tx_buf[2] = data[UART_RX_MSG_SUB_COMMAND_IND];
-                tx_buf[3] = SUCCESS;
-                tx_buf[4] = FindChecksum(tx_buf, 4);
-                app_uart_transmit(tx_buf, 5);       
+
+                tx_buf[0] = 3;
+                tx_buf[1] = data[UART_RX_MSG_COMMAND_IND] | 0x80;
+                tx_buf[2] = SUCCESS;
+                tx_buf[3] = FindChecksum(tx_buf, 3);
+                app_uart_transmit(tx_buf, 4); 
                 break;
-    
-            default:
-                tx_buf[0] = 4;
-                tx_buf[1] = TOOL_SET_DEVICE_CONFIG | 0x80;
-                tx_buf[2] = data[UART_RX_MSG_SUB_COMMAND_IND];
-                tx_buf[3] = INVALID_PROD_COMMAND;
-                tx_buf[4] = FindChecksum(tx_buf, 4);
-                app_uart_transmit(tx_buf, 5);       
-                break;
-            }
-            break;
+                
+            case TOOL_SET_SERIAL_OF_DUT_CMD:
+                memset(gst_ProductionData.mu8_SerialNumber, 0, sizeof(gst_ProductionData.mu8_SerialNumber));
+                memcpy(gst_ProductionData.mu8_SerialNumber, &data[2], sizeof(gst_ProductionData.mu8_SerialNumber));
+                bool_ProductionDataWrite = true;  
             
-        case TOOL_READ_DEVICE_CONFIG:
-            switch (data[UART_RX_MSG_SUB_COMMAND_IND]) {
-            case 0:
-                tx_buf[0] = 16;
-                tx_buf[1] = TOOL_READ_DEVICE_CONFIG | 0x80;
-                tx_buf[2] = data[UART_RX_MSG_SUB_COMMAND_IND];
-                tx_buf[3] = SUCCESS;
-                memcpy(&tx_buf[4], gst_ProductionData.mu8ar_ModelNumber, sizeof(gst_ProductionData.mu8ar_ModelNumber));
-                tx_buf[16] = FindChecksum(tx_buf, 16);
-                app_uart_transmit(tx_buf, 17);  
+                tx_buf[0] = 3;
+                tx_buf[1] = TOOL_SET_SERIAL_OF_DUT_CMD | 0x80;
+                tx_buf[2] = SUCCESS;
+                tx_buf[3] = FindChecksum(tx_buf, 3);
+                app_uart_transmit(tx_buf, 4);    
+                break;
+                
+            case TOOL_SET_MAC_OF_DUT_CMD:
+                for (lu8_i1 = 0; lu8_i1 < 6; lu8_i1++) {
+                    gst_ProductionData.mu8ar_MACAddr[5 - lu8_i1] = data[lu8_i1 + 2];
+                }   
+                bool_ProductionDataWrite = true;  
+                
+                tx_buf[0] = 3;
+                tx_buf[1] = TOOL_SET_MAC_OF_DUT_CMD | 0x80;
+                tx_buf[2] = SUCCESS;
+                tx_buf[3] = FindChecksum(tx_buf, 3);
+                app_uart_transmit(tx_buf, 4);    
+                break;
+                    
+            case TOOL_READ_SERIAL_OF_DUT_CMD:
+                tx_buf[0] = 20;
+                tx_buf[1] = TOOL_READ_SERIAL_OF_DUT_CMD | 0x80;             
+                memcpy(&tx_buf[2], (uint8_t*)gst_ProductionData.mu8_SerialNumber, sizeof(gst_ProductionData.mu8_SerialNumber));
+                tx_buf[20] = FindChecksum(tx_buf, 20);
+                app_uart_transmit(tx_buf, 21);   
+                break;
+                
+            case TOOL_READ_MAC_OF_DUT_CMD:
+                tx_buf[0] = 8;
+                tx_buf[1] = TOOL_READ_MAC_OF_DUT_CMD | 0x80;
+                for (lu8_i1 = 0; lu8_i1 < 6; lu8_i1++) {
+                    tx_buf[lu8_i1 + 2] = gst_ProductionData.mu8ar_MACAddr[5 - lu8_i1];
+                }   
+                tx_buf[8] = FindChecksum(tx_buf, 8);
+                app_uart_transmit(tx_buf, 9);    
+                break;
+            
+            case TOOL_READ_BLE_MAC_OF_DUT_CMD:					//Read public random static MAC of device
+                
+                tx_buf[0] = 8;
+                tx_buf[1] = TOOL_READ_BLE_MAC_OF_DUT_CMD | 0x80;
+                get_factory_mac_copy(&tx_buf[2]);
+                tx_buf[8] = FindChecksum(tx_buf,8);
+                app_uart_transmit(tx_buf,9);	
+                
+                break;
+
+            case TOOL_SET_DUT_CONFG_CMD:
+                memcpy((uint8_t*)&gst_ConfigData.mu16_AdvertismentInterval, &data[3], sizeof(gst_ConfigData.mu16_AdvertismentInterval));
+                gst_ConfigData.mu8_TxPow = data[5];
+                bool_ConfigDataWrite = true;  
+            
+                tx_buf[0] = 3;
+                tx_buf[1] = TOOL_SET_DUT_CONFG_CMD | 0x80;
+                tx_buf[2] = SUCCESS;
+                tx_buf[3] = FindChecksum(tx_buf, 3);
+                app_uart_transmit(tx_buf, 4);    
+                break;
+
+            case TOOL_READ_FW_VER_CMD:
+                tx_buf[0] = 6;
+                tx_buf[1] = TOOL_READ_FW_VER_CMD | 0x80;
+                tx_buf[2] = FIRMWARE_MAJOR;
+                tx_buf[3] = FIRMWARE_MINOR;
+                tx_buf[4] = HARDWARE_MAJOR;
+                tx_buf[5] = HARDWARE_MINOR;         
+                tx_buf[6] = FindChecksum(tx_buf, 6);
+                app_uart_transmit(tx_buf, 7);    
+                break;
+
+            case TOOL_SET_CLOCK_CMD:
+                memcpy((uint8_t*)&gst_DynamicData.mu32_CurrentTime, &data[2], sizeof(gst_DynamicData.mu32_CurrentTime));
+                memcpy((uint8_t*)&gst_ConfigData.s16_TimeZoneOffset, &data[6], sizeof(gst_ConfigData.s16_TimeZoneOffset));              
+                bool_ConfigDataWrite = true;  
+                bool_DynamicDataWrite = true;
+
+                tx_buf[0] = 3;
+                tx_buf[1] = TOOL_SET_CLOCK_CMD | 0x80;
+                tx_buf[2] = SUCCESS;
+                tx_buf[3] = FindChecksum(tx_buf, 3);
+                app_uart_transmit(tx_buf, 4); 
+                break;             
+                
+            case TOOL_SET_DEVICE_CONFIG:
+                switch (data[UART_RX_MSG_SUB_COMMAND_IND]) 
+                {
+                    case 0:
+                        memcpy(gst_ProductionData.mu8ar_ModelNumber, &data[3], sizeof(gst_ProductionData.mu8ar_ModelNumber));
+                        bool_ProductionDataWrite = true;
+                        tx_buf[0] = 4;
+                        tx_buf[1] = TOOL_SET_DEVICE_CONFIG | 0x80;
+                        tx_buf[2] = data[UART_RX_MSG_SUB_COMMAND_IND];
+                        tx_buf[3] = SUCCESS;
+                        tx_buf[4] = FindChecksum(tx_buf, 4);
+                        app_uart_transmit(tx_buf, 5);       
+                        break;
+            
+                    default:
+                        tx_buf[0] = 4;
+                        tx_buf[1] = TOOL_SET_DEVICE_CONFIG | 0x80;
+                        tx_buf[2] = data[UART_RX_MSG_SUB_COMMAND_IND];
+                        tx_buf[3] = INVALID_PROD_COMMAND;
+                        tx_buf[4] = FindChecksum(tx_buf, 4);
+                        app_uart_transmit(tx_buf, 5);       
+                        break;
+                }
+                break;
+                
+            case TOOL_READ_DEVICE_CONFIG:
+                switch (data[UART_RX_MSG_SUB_COMMAND_IND]) 
+                {
+                    case 0:
+                        tx_buf[0] = 16;
+                        tx_buf[1] = TOOL_READ_DEVICE_CONFIG | 0x80;
+                        tx_buf[2] = data[UART_RX_MSG_SUB_COMMAND_IND];
+                        tx_buf[3] = SUCCESS;
+                        memcpy(&tx_buf[4], gst_ProductionData.mu8ar_ModelNumber, sizeof(gst_ProductionData.mu8ar_ModelNumber));
+                        tx_buf[16] = FindChecksum(tx_buf, 16);
+                        app_uart_transmit(tx_buf, 17);  
+                        break;
+                            
+                    default:
+                        tx_buf[0] = 4;
+                        tx_buf[1] = TOOL_READ_DEVICE_CONFIG | 0x80;
+                        tx_buf[2] = data[UART_RX_MSG_SUB_COMMAND_IND];
+                        tx_buf[3] = INVALID_PROD_COMMAND;
+                        tx_buf[4] = FindChecksum(tx_buf, 4);
+                        app_uart_transmit(tx_buf, 5);       
+                        break;
+                }
                 break;
                     
             default:
-                tx_buf[0] = 4;
-                tx_buf[1] = TOOL_READ_DEVICE_CONFIG | 0x80;
-                tx_buf[2] = data[UART_RX_MSG_SUB_COMMAND_IND];
-                tx_buf[3] = INVALID_PROD_COMMAND;
-                tx_buf[4] = FindChecksum(tx_buf, 4);
-                app_uart_transmit(tx_buf, 5);       
                 break;
-            }
-            break;
-                
-        default:
-            break;
         }
     }
 
     /* Process NVS writes sequentially outside the ISR context */
     if (bool_ProductionDataWrite) {
         bool_ProductionDataWrite = false;
+        LOG_INF("Production Para Updated");
         write_nvs_data(PRODUCTION_DATA_KEY, &gst_ProductionData, sizeof(st_ProductionData_t));
     }
 
     if (bool_ConfigDataWrite) {
         bool_ConfigDataWrite = false;
+        LOG_INF("Config Para Updated");
         write_nvs_data(CONFIG_DATA_KEY, &gst_ConfigData, sizeof(st_ConfigData_t));
     }
 
     if (bool_DynamicDataWrite) {
         bool_DynamicDataWrite = false;
+        LOG_INF("Dynamic Para Updated");
         write_nvs_data(DYNAMIC_DATA_KEY, &gst_DynamicData, sizeof(st_DynamicData_t));
     }
 }
