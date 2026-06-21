@@ -575,6 +575,16 @@ static void fmdn_provisioning_state_changed(bool provisioned)
 
 		fp_adv_ui_request = false;
 		app_fp_adv_request(&fp_adv_trigger_ui, fp_adv_ui_request);
+
+        /* =========================================================================
+         * Start custom frame when initial provisioning completes
+         * ========================================================================= */
+        LOG_INF("FMDN Provisioning completed successfully. Launching Custom Vision Frame.");
+        int err = ble_adv_custom_start();
+        if (err) {
+            LOG_ERR("Vision: Failed to start custom frame advertisement on provisioning done (err %d)", err);
+        }
+
 	} else {
 		/* Fast Pair Implementation Guidelines for the locator tag use case:
 		 * trigger the reset to factory settings on the unprovisioning operation.
@@ -625,6 +635,10 @@ static void fmdn_provisioning_state_init(void)
 			LOG_ERR("Vision: ble_adv_custom_start (err %d)", err);
 			return;
 		}
+        else
+        {
+            LOG_INF("Vision frame also started");
+        }
 	}
 	
 	//fp_adv_ui_request = !provisioned;
@@ -717,6 +731,24 @@ static int fmdn_prepare(void)
 	return 0;
 }
 
+static int vision_frame_prepare(void)
+{
+	int err;
+    err = ble_adv_custom_init();
+    if (err) {
+		LOG_ERR("Vision: ble_adv_custom_init failed (err %d)", err);
+		return err;
+	}
+    
+    err = ble_custom_service_init();
+    if (err) {
+		LOG_ERR("Vision: ble_custom_service_init failed (err %d)", err);
+		return err;
+	}
+
+    return 0;
+}
+
 static int app_id_create(void)
 {
 	int ret;
@@ -797,6 +829,20 @@ static void init_work_handle(struct k_work *w)
 		}
 	}
 
+    //--------------------------------------------------------------------------
+    err = app_nvs_handler_init();
+    if (err) {
+        LOG_ERR("app_nvs_handler_init failed (err %d)", err);
+        return;
+    }
+
+    err = app_storage_verify_and_load();
+    if (err) {
+        LOG_ERR("app_storage_verify_and_load failed (err %d)", err);
+        return;
+    }
+    //--------------------------------------------------------------------------
+
 	err = fast_pair_prepare();
 	if (err) {
 		LOG_ERR("FMDN: fast_pair_prepare failed (err %d)", err);
@@ -806,6 +852,12 @@ static void init_work_handle(struct k_work *w)
 	err = fmdn_prepare();
 	if (err) {
 		LOG_ERR("FMDN: fmdn_prepare failed (err %d)", err);
+		return;
+	}
+
+    err = vision_frame_prepare();
+	if (err) {
+		LOG_ERR("vision: vision_prepare failed (err %d)", err);
 		return;
 	}
 
@@ -830,37 +882,16 @@ static void init_work_handle(struct k_work *w)
 	fmdn_provisioning_state_init();
 
 	//-------------------------------------------------------------------------------
-	/* 1. Mount the raw file system sectors on the internal flash chip */
-	err = app_nvs_handler_init();
-    if (err) {
-        LOG_ERR("app_nvs_handler_init failed (err %d)", err);
-        return;
-    }
-
-    /* 2. Boot NVS application data */
-	err = app_storage_verify_and_load();
-    if (err) {
-        LOG_ERR("app_storage_verify_and_load failed (err %d)", err);
-        return;
-    }
-
-	ble_adv_custom_init();
-	ble_adv_custom_start();
-	ble_custom_service_init();
 	app_time_activities_init();
 	app_uart_boot_sequence_start();
 
-    /*err = lis3dh_powerdown();
-    if (err) {
-        LOG_ERR("FMDN: app_motion_detector_powerdown failed (err %d)", err);
-        return;
-    }*/
     err = lis3dh_setup(gst_ConfigData.mu8_Movement_INT_THS, gst_ConfigData.mu8_Movement_INT_TIME);
     if (err) {
         LOG_ERR("LIS3DH Configuration failed (err %d)", err);
         return;
     }
-
+    //-------------------------------------------------------------------------------
+    
 	k_sem_give(&init_work_sem);
 }
 
