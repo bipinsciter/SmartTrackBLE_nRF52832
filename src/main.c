@@ -20,7 +20,7 @@
 #include "app_fp_adv.h"
  
 #include "app_motion_detector.h"
-
+#include "app_vision_motion.h"
 #include "app_battery.h"
 #include "app_ring.h"
 #include "app_ui.h"
@@ -707,19 +707,6 @@ static int fmdn_prepare(void)
 			return err;
 		}
 	}
-	else
-	{
-		/*err = lis3dh_powerdown();
-		if (err) {
-			LOG_ERR("FMDN: app_motion_detector_powerdown failed (err %d)", err);
-			return err;
-		}*/
-		err = lis3dh_setup();
-		if (err) {
-			LOG_ERR("LIS3DH Configuration failed (err %d)", err);
-			return err;
-		}
-	}
 
 	err = bt_fast_pair_info_cb_register(&fp_info_callbacks);
 	if (err) {
@@ -847,12 +834,14 @@ static void init_work_handle(struct k_work *w)
 	err = app_nvs_handler_init();
     if (err) {
         LOG_ERR("app_nvs_handler_init failed (err %d)", err);
+        return;
     }
 
     /* 2. Boot NVS application data */
 	err = app_storage_verify_and_load();
     if (err) {
         LOG_ERR("app_storage_verify_and_load failed (err %d)", err);
+        return;
     }
 
 	ble_adv_custom_init();
@@ -860,6 +849,17 @@ static void init_work_handle(struct k_work *w)
 	ble_custom_service_init();
 	app_time_activities_init();
 	app_uart_boot_sequence_start();
+
+    /*err = lis3dh_powerdown();
+    if (err) {
+        LOG_ERR("FMDN: app_motion_detector_powerdown failed (err %d)", err);
+        return;
+    }*/
+    err = lis3dh_setup(gst_ConfigData.mu8_Movement_INT_THS, gst_ConfigData.mu8_Movement_INT_TIME);
+    if (err) {
+        LOG_ERR("LIS3DH Configuration failed (err %d)", err);
+        return;
+    }
 
 	k_sem_give(&init_work_sem);
 }

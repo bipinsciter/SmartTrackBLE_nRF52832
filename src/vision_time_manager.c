@@ -141,6 +141,11 @@ static void time_supervisor_work_handler(struct k_work *work)
     k_work_schedule(&time_supervisor_work, K_SECONDS(60));
 
     if (bool_IsTimeSynchronized) {
+
+        uint32_t current_live_time = app_time_get_utc_epoch();
+
+        gst_DynamicData.mu32_CurrentTime = current_live_time;
+
         /* Continuously store a backup copy of the time parameters into retained RAM */
         static_retained_time.u32_LastSavedUtcEpoch = app_time_get_utc_epoch();
         static_retained_time.s64_LastSavedUptimeMs = k_uptime_get();

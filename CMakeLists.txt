@@ -23,6 +23,7 @@ target_sources(app PRIVATE
   src/vision_production.c
   src/vision_bootup.c
   src/vision_time_manager.c
+  src/vision_motion.c
   src/vision_battery.c
   src/common.c
 )

@@ -11,9 +11,9 @@ extern "C" {
 #endif
 
 //---------------------------------------------------------
-#define AUTHORIZATION_LOGIC
+//#define AUTHORIZATION_LOGIC
 #define ENERGY_SAVE_MODE_LOGIC
-#define DISC_FROM_DEVICE
+//#define DISC_FROM_DEVICE
 //---------------------------------------------------------
 #define DEEP_SLEEP_ENABLE						0
 #define DEEP_SLEEP_DISABLE						1
@@ -28,6 +28,7 @@ extern "C" {
 #define INVALID_SUB_COMMAND						7
 #define INVALID_VALUE							8
 #define INVALID_FW								9
+#define INVALID_RTC								10
 //---------------------------------------------------------
 #define AUTHO_TOUT_TIME_SEC						20
 #define DISCC_TIME_SEC     						60

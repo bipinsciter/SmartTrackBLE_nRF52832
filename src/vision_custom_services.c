@@ -17,6 +17,7 @@
 #include "app_vision_bootup.h"
 #include "app_nvs_storage.h"
 #include "app_vision_time_manager.h"
+#include "app_motion_detector.h"
 
 LOG_MODULE_REGISTER(ble_custom_svc, LOG_LEVEL_INF);
 
@@ -264,7 +265,6 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
                 bool_ConfigDataWrite = true;
                 bool_DynamicDataWrite = true;
 
-                /* SAFELY SYNC CLOCK CONTEXT RAM BASES INSTANTLY */
                 app_time_sync_set_utc(gst_DynamicData.mu32_CurrentTime);
 
                 local_reply_buf[0] = SUCCESS;
@@ -273,9 +273,18 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
 
             case READ_CURRENT_TIME:
                 LOG_INF("Command Code Received: READ_CURRENT_TIME"); 
-                local_reply_buf[0] = SUCCESS;
-                memcpy(&local_reply_buf[1], (uint8_t*)&gst_DynamicData.mu32_CurrentTime, sizeof(gst_DynamicData.mu32_CurrentTime));
-                response_len = 5;
+
+                uint32_t live_epoch = app_time_get_utc_epoch();
+                if (live_epoch != 0) {
+                    local_reply_buf[0] = SUCCESS;
+                    memcpy(&local_reply_buf[1], &live_epoch, sizeof(live_epoch));
+                    response_len = 5;
+                } else {
+                    /* Device clock has not been initialized with a sync frame yet */
+                    local_reply_buf[0] = FAIL;
+                    local_reply_buf[1] = INVALID_RTC;
+                    response_len = 2;
+                }
                 break;  
 
             case READ_ASSOCIATION_PARA:
@@ -351,6 +360,9 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
                 gst_ConfigData.mu8_Movement_INT_TIME = temp_buf[7]; 
                 bool_ConfigDataWrite = true;    
                 local_reply_buf[0] = SUCCESS;
+
+                lis3dh_update(gst_ConfigData.mu8_Movement_INT_THS, gst_ConfigData.mu8_Movement_INT_TIME);
+
                 response_len = 1;
                 break;
 

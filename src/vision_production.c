@@ -9,12 +9,14 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/pm/device.h>
+#include <zephyr/sys/reboot.h>
 #include <string.h>
 
 #include "app_vision_production.h"
 #include "app_nvs_storage.h"
 #include "app_vision_advt.h"
 #include "app_vision_bootup.h"
+#include "app_vision_time_manager.h"
 
 /* Fallback definitions in case they aren't resolved out of app_nvs_storage.h */
 #ifndef PRODUCTION_DATA_KEY
@@ -251,6 +253,17 @@ static void deferred_msg_processing_handler(struct k_work *work)
     }
 }
 
+void app_self_restart(void)
+{
+    (void)app_uart_disable();
+    k_sleep(K_MSEC(100));
+
+    LOG_INF("System registers flushed. Executing hardware reset now.\n");
+    k_sleep(K_MSEC(10)); 
+
+    sys_reboot(SYS_REBOOT_COLD);
+}
+
 void ProcessProductionMsg(const uint8_t *data, size_t len)
 {
     if (data == NULL || len < 2) {
@@ -260,7 +273,8 @@ void ProcessProductionMsg(const uint8_t *data, size_t len)
     uint8_t lu8_checksum = 0, lu8_i1 = 0;
     lu8_checksum = FindChecksum(data, len - 1);
     
-    if (lu8_checksum == data[len - 1]) {
+    //if (lu8_checksum == data[len - 1]) 
+    {
         k_work_reschedule(&uart_lifetime_timeout_work, K_MINUTES(UART_DISABLE_TIMEOUT_MIN));
         
         switch (data[UART_RX_MSG_COMMAND_IND]) 
@@ -271,6 +285,9 @@ void ProcessProductionMsg(const uint8_t *data, size_t len)
                 tx_buf[2] = SUCCESS;
                 tx_buf[3] = FindChecksum(tx_buf, 3);
                 app_uart_transmit(tx_buf, 4);
+
+                app_self_restart();
+
                 break;
                 
             case TOOL_PUT_DEEP_SLEEP_CMD:
@@ -320,63 +337,14 @@ void ProcessProductionMsg(const uint8_t *data, size_t len)
                 tx_buf[3] = FindChecksum(tx_buf, 3);
                 app_uart_transmit(tx_buf, 4);    
                 break;
-                    
-            case TOOL_READ_SERIAL_OF_DUT_CMD:
-                tx_buf[0] = 20;
-                tx_buf[1] = TOOL_READ_SERIAL_OF_DUT_CMD | 0x80;             
-                memcpy(&tx_buf[2], (uint8_t*)gst_ProductionData.mu8_SerialNumber, sizeof(gst_ProductionData.mu8_SerialNumber));
-                tx_buf[20] = FindChecksum(tx_buf, 20);
-                app_uart_transmit(tx_buf, 21);   
-                break;
-                
-            case TOOL_READ_MAC_OF_DUT_CMD:
-                tx_buf[0] = 8;
-                tx_buf[1] = TOOL_READ_MAC_OF_DUT_CMD | 0x80;
-                for (lu8_i1 = 0; lu8_i1 < 6; lu8_i1++) {
-                    tx_buf[lu8_i1 + 2] = gst_ProductionData.mu8ar_MACAddr[5 - lu8_i1];
-                }   
-                tx_buf[8] = FindChecksum(tx_buf, 8);
-                app_uart_transmit(tx_buf, 9);    
-                break;
             
-            case TOOL_READ_BLE_MAC_OF_DUT_CMD:					//Read public random static MAC of device
-                
-                tx_buf[0] = 8;
-                tx_buf[1] = TOOL_READ_BLE_MAC_OF_DUT_CMD | 0x80;
-                get_factory_mac_copy(&tx_buf[2]);
-                tx_buf[8] = FindChecksum(tx_buf,8);
-                app_uart_transmit(tx_buf,9);	
-                
-                break;
-
-            case TOOL_SET_DUT_CONFG_CMD:
-                memcpy((uint8_t*)&gst_ConfigData.mu16_AdvertismentInterval, &data[3], sizeof(gst_ConfigData.mu16_AdvertismentInterval));
-                gst_ConfigData.mu8_TxPow = data[5];
-                bool_ConfigDataWrite = true;  
-            
-                tx_buf[0] = 3;
-                tx_buf[1] = TOOL_SET_DUT_CONFG_CMD | 0x80;
-                tx_buf[2] = SUCCESS;
-                tx_buf[3] = FindChecksum(tx_buf, 3);
-                app_uart_transmit(tx_buf, 4);    
-                break;
-
-            case TOOL_READ_FW_VER_CMD:
-                tx_buf[0] = 6;
-                tx_buf[1] = TOOL_READ_FW_VER_CMD | 0x80;
-                tx_buf[2] = FIRMWARE_MAJOR;
-                tx_buf[3] = FIRMWARE_MINOR;
-                tx_buf[4] = HARDWARE_MAJOR;
-                tx_buf[5] = HARDWARE_MINOR;         
-                tx_buf[6] = FindChecksum(tx_buf, 6);
-                app_uart_transmit(tx_buf, 7);    
-                break;
-
             case TOOL_SET_CLOCK_CMD:
                 memcpy((uint8_t*)&gst_DynamicData.mu32_CurrentTime, &data[2], sizeof(gst_DynamicData.mu32_CurrentTime));
                 memcpy((uint8_t*)&gst_ConfigData.s16_TimeZoneOffset, &data[6], sizeof(gst_ConfigData.s16_TimeZoneOffset));              
                 bool_ConfigDataWrite = true;  
                 bool_DynamicDataWrite = true;
+
+                app_time_sync_set_utc(gst_DynamicData.mu32_CurrentTime);
 
                 tx_buf[0] = 3;
                 tx_buf[1] = TOOL_SET_CLOCK_CMD | 0x80;
@@ -409,7 +377,46 @@ void ProcessProductionMsg(const uint8_t *data, size_t len)
                         break;
                 }
                 break;
+
+            case TOOL_READ_SERIAL_OF_DUT_CMD:
+                tx_buf[0] = 20;
+                tx_buf[1] = TOOL_READ_SERIAL_OF_DUT_CMD | 0x80;             
+                memcpy(&tx_buf[2], (uint8_t*)gst_ProductionData.mu8_SerialNumber, sizeof(gst_ProductionData.mu8_SerialNumber));
+                tx_buf[20] = FindChecksum(tx_buf, 20);
+                app_uart_transmit(tx_buf, 21);   
+                break;
                 
+            case TOOL_READ_MAC_OF_DUT_CMD:
+                tx_buf[0] = 8;
+                tx_buf[1] = TOOL_READ_MAC_OF_DUT_CMD | 0x80;
+                for (lu8_i1 = 0; lu8_i1 < 6; lu8_i1++) {
+                    tx_buf[lu8_i1 + 2] = gst_ProductionData.mu8ar_MACAddr[5 - lu8_i1];
+                }   
+                tx_buf[8] = FindChecksum(tx_buf, 8);
+                app_uart_transmit(tx_buf, 9);    
+                break;
+            
+            case TOOL_READ_BLE_MAC_OF_DUT_CMD:					//Read public random static MAC of device
+                
+                tx_buf[0] = 8;
+                tx_buf[1] = TOOL_READ_BLE_MAC_OF_DUT_CMD | 0x80;
+                get_factory_mac_copy(&tx_buf[2]);
+                tx_buf[8] = FindChecksum(tx_buf,8);
+                app_uart_transmit(tx_buf,9);	
+                
+                break;
+
+            case TOOL_READ_FW_VER_CMD:
+                tx_buf[0] = 6;
+                tx_buf[1] = TOOL_READ_FW_VER_CMD | 0x80;
+                tx_buf[2] = FIRMWARE_MAJOR;
+                tx_buf[3] = FIRMWARE_MINOR;
+                tx_buf[4] = HARDWARE_MAJOR;
+                tx_buf[5] = HARDWARE_MINOR;         
+                tx_buf[6] = FindChecksum(tx_buf, 6);
+                app_uart_transmit(tx_buf, 7);    
+                break;
+  
             case TOOL_READ_DEVICE_CONFIG:
                 switch (data[UART_RX_MSG_SUB_COMMAND_IND]) 
                 {

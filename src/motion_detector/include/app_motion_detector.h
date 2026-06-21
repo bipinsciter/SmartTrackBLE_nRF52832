@@ -30,9 +30,11 @@ int app_motion_detector_init(void);
  */
 int app_motion_detector_powerdown(void);
 
-int lis3dh_setup(void);
+int lis3dh_setup(uint8_t Thresold, uint8_t Duration);
 
 int lis3dh_powerdown(void);
+
+int lis3dh_update(uint8_t Thresold, uint8_t Duration);
 
 #ifdef __cplusplus
 }
