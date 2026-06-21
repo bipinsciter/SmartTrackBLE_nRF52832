@@ -40,6 +40,8 @@ bool app_dfu_bt_gatt_operation_allow(const struct bt_uuid *uuid);
 /** Log the current firmware version. */
 void app_dfu_fw_version_log(void);
 
+void app_dfu_enter_mode_custom(void);
+
 #ifdef __cplusplus
 }
 #endif

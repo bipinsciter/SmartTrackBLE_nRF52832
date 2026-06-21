@@ -18,6 +18,7 @@
 #include "app_nvs_storage.h"
 #include "app_vision_time_manager.h"
 #include "app_motion_detector.h"
+#include "app_dfu.h"
 
 LOG_MODULE_REGISTER(ble_custom_svc, LOG_LEVEL_INF);
 
@@ -443,7 +444,10 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
                 local_reply_buf[0] = SUCCESS; 
                 response_len = 1;
                 bool_disconnect = true;
-                bool_restart = true;
+                //bool_restart = true;
+
+                app_dfu_enter_mode_custom();
+
                 break;
 
             case READ_BLE_MAC_ADDR:

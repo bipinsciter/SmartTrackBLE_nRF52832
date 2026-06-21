@@ -273,7 +273,7 @@ void ProcessProductionMsg(const uint8_t *data, size_t len)
     uint8_t lu8_checksum = 0, lu8_i1 = 0;
     lu8_checksum = FindChecksum(data, len - 1);
     
-    //if (lu8_checksum == data[len - 1]) 
+    if (lu8_checksum == data[len - 1]) 
     {
         k_work_reschedule(&uart_lifetime_timeout_work, K_MINUTES(UART_DISABLE_TIMEOUT_MIN));
         

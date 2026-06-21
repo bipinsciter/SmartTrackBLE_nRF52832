@@ -138,7 +138,8 @@ static int battery_measure(uint8_t *charge)
     int32_t val_mv;
 
     /* Give external power lines a micro window to settle */
-    k_msleep(1);
+    //k_msleep(1);
+    k_busy_wait(100);
 
     err = battery_voltage_get(&val_mv);
     if (err) {

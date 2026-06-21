@@ -127,7 +127,7 @@ int ble_adv_custom_init(void)
     // Apply generic base default states to fields on cold launch
     active_svc_data.service_uuid = 0x9E83; 
     memset(&active_svc_data.data, 0x00, sizeof(active_svc_data.data));
-    active_svc_data.data.sp.FWVer = 0x10; // Firmware major/minor tag
+    active_svc_data.data.sp.FWVer = (uint8_t)(((FIRMWARE_MAJOR & 0x0F) << 4) | (FIRMWARE_MINOR & 0x0F));
 
     active_mfg_data.company_id = sys_cpu_to_le16(COMPANY_ID);
     memcpy(active_mfg_data.payload, gst_ProductionData.mu8ar_MACAddr, sizeof(gst_ProductionData.mu8ar_MACAddr));

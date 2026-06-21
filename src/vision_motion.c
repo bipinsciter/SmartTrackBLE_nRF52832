@@ -41,7 +41,7 @@ LOG_MODULE_DECLARE(lis3dh, LOG_LEVEL_INF);
 #define REG_CTRL_REG5_VAL 0x00
 #define REG_CTRL_REG6_VAL 0x00
 #define REG_INT1_CFG_VAL  0x15  /* movement on X/Y/Z with OR */
-#define REG_INT1_THS_VAL  0x05//0x19  /* threshold - tune (LSB ~ 16 mg at FS=2g) */
+#define REG_INT1_THS_VAL  0x0A//0x19  /* threshold - tune (LSB ~ 16 mg at FS=2g) */
 #define REG_INT1_DUR_VAL  0x0A  /* duration in number of samples */
 
 static const struct device *i2c_dev = DEVICE_DT_GET(DT_NODELABEL(i2c0));
@@ -80,7 +80,7 @@ int lis3dh_setup(uint8_t Thresold, uint8_t Duration)
     uint8_t who = 0;
 
     // Give the LIS3DH time to fully boot its internal digital structures
-    k_msleep(500);
+    //k_msleep(500);
     
     LOG_INF("LIS3DH Initialization");
 
@@ -173,7 +173,7 @@ int lis3dh_setup(uint8_t Thresold, uint8_t Duration)
 
     LOG_INF("LIS3DH configured for wake-on-motion (INT1)");
     return 0;
-}
+} 
 
 /* Power down LIS3DH */
 int lis3dh_update(uint8_t Thresold, uint8_t Duration)
@@ -211,6 +211,13 @@ int lis3dh_powerdown(void)
     int ret;
     uint8_t who = 0;
 
+    ret = pm_device_action_run(i2c_dev, PM_DEVICE_ACTION_RESUME);
+    if (ret != 0) {
+        LOG_ERR("I2C0 resumed failed (%d)", ret);
+    } else {
+        LOG_INF("I2C0 resumed successfully");
+    }
+
     ret = i2c_read_reg(LIS3DH_WHO_AM_I, &who);
     if (ret) {
         LOG_ERR("Failed to read WHO_AM_I (%d)", ret);
@@ -234,6 +241,13 @@ int lis3dh_powerdown(void)
         if (ret) return ret;
 
         LOG_INF("Put LIS3DH in power down mode");
+    }
+
+    ret = pm_device_action_run(i2c_dev, PM_DEVICE_ACTION_SUSPEND);
+    if (ret != 0) {
+        LOG_ERR("I2C0 suspended failed (%d)", ret);
+    } else {
+        LOG_INF("I2C0 suspended successfully");
     }
     
     return 0;

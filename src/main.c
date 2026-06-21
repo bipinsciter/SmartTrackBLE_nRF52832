@@ -890,6 +890,12 @@ static void init_work_handle(struct k_work *w)
         LOG_ERR("LIS3DH Configuration failed (err %d)", err);
         return;
     }
+
+    /*err = lis3dh_powerdown();
+    if (err) {
+        LOG_ERR("LIS3DH Powerdown failed (err %d)", err);
+        return;
+    }*/
     //-------------------------------------------------------------------------------
     
 	k_sem_give(&init_work_sem);

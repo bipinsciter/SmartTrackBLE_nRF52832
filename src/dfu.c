@@ -25,7 +25,7 @@
 LOG_MODULE_DECLARE(fp_fmdn, LOG_LEVEL_INF);
 
 /* DFU mode timeout in minutes. */
-#define DFU_MODE_TIMEOUT_MIN (5)
+#define DFU_MODE_TIMEOUT_MIN (2)
 
 static const struct bt_data data = BT_DATA_BYTES(BT_DATA_UUID128_ALL, SMP_BT_SVC_UUID_VAL);
 static bool dfu_mode;
@@ -156,6 +156,12 @@ static void dfu_mode_action_handle(void)
 	(void) k_work_reschedule(&dfu_mode_timeout_work, K_MINUTES(DFU_MODE_TIMEOUT_MIN));
 
 	dfu_mode_change(true);
+}
+
+void app_dfu_enter_mode_custom(void)
+{
+    /* Hand it over smoothly to the cooperative thread execution context */
+    dfu_mode_action_handle();
 }
 
 static void dfu_mode_timeout_work_handle(struct k_work *w)
