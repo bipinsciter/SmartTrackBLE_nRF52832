@@ -23,10 +23,14 @@ target_sources(app PRIVATE
   src/vision_production.c
   src/vision_bootup.c
   src/vision_time_manager.c
-  src/vision_motion.c
   src/vision_battery.c
+  src/vision_watchdog.c
   src/common.c
 )
+
+if (CONFIG_LIS3DH_SENSOR_ENABLED)
+  target_sources(app PRIVATE src/vision_motion.c)
+endif()
 
 zephyr_linker_sources(SECTIONS src/factory_reset_callbacks.ld)
 

@@ -30,6 +30,7 @@
 #include "app_nvs_storage.h"
 #include "app_vision_bootup.h"
 #include "app_vision_time_manager.h"
+#include "app_watchdog.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(fp_fmdn, LOG_LEVEL_INF);
@@ -885,6 +886,7 @@ static void init_work_handle(struct k_work *w)
 	app_time_activities_init();
 	app_uart_boot_sequence_start();
 
+    #if IS_ENABLED(CONFIG_LIS3DH_SENSOR_ENABLED)
     err = lis3dh_setup(gst_ConfigData.mu8_Movement_INT_THS, gst_ConfigData.mu8_Movement_INT_TIME);
     if (err) {
         LOG_ERR("LIS3DH Configuration failed (err %d)", err);
@@ -896,6 +898,12 @@ static void init_work_handle(struct k_work *w)
         LOG_ERR("LIS3DH Powerdown failed (err %d)", err);
         return;
     }*/
+    #endif
+    
+    if (app_watchdog_init() == 0) {
+        app_watchdog_start_feeding();
+    }
+    
     //-------------------------------------------------------------------------------
     
 	k_sem_give(&init_work_sem);

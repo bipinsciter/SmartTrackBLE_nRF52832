@@ -1,0 +1,9 @@
+#
+# Copyright (c) 2024 Nordic Semiconductor
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+config LIS3DH_SENSOR_ENABLED
+	bool "LIS3DH sensor use enable or disable"
+	default n

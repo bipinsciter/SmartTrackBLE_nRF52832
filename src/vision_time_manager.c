@@ -24,6 +24,7 @@ struct retained_time_block {
     int64_t  s64_LastSavedUptimeMs;
 };
 
+/* Using Zephyr's preferred cross-compiler macro wrapper for uninitialized sections */
 static __attribute__((section(".noinit"))) struct retained_time_block static_retained_time;
 
 /* Global System Synchronizer Variables kept in fast volatile RAM */
@@ -37,7 +38,6 @@ K_MUTEX_DEFINE(time_mutex);
 
 /**
  * @brief Calibrates the software system clock using an incoming trusted master timestamp 
- * (e.g., received via a custom phone app write or GPS fix).
  */
 void app_time_sync_set_utc(uint32_t u32_IncomingEpochSeconds)
 {
@@ -48,7 +48,8 @@ void app_time_sync_set_utc(uint32_t u32_IncomingEpochSeconds)
     s64_BaseUtcEpoch = (int64_t)u32_IncomingEpochSeconds;
     bool_IsTimeSynchronized = true;
 
-    static_retained_time.u32_LastSavedUtcEpoch = app_time_get_utc_epoch();
+    /* FIX: Assigned directly using the incoming value to avoid a re-entrant mutex deadlock */
+    static_retained_time.u32_LastSavedUtcEpoch = u32_IncomingEpochSeconds;
     static_retained_time.s64_LastSavedUptimeMs = k_uptime_get();
     static_retained_time.u32_MagicMarker = TIME_MAGIC_VALIDATED;
 
@@ -66,22 +67,21 @@ uint32_t app_time_get_utc_epoch(void)
     
     if (!bool_IsTimeSynchronized) {
         k_mutex_unlock(&time_mutex);
-        return 0; /* Returns zero if device hasn't received a clock sync frame yet */
+        return 0; 
     }
 
     int64_t current_ticks = k_uptime_ticks();
     int64_t elapsed_ticks = current_ticks - s64_BaseUptimeTicks;
     
-    /* Safely convert raw hardware clocks to actual integer seconds fractions */
-    uint32_t current_utc = (uint32_t)(s64_BaseUtcEpoch + (elapsed_ticks / sys_clock_hw_cycles_per_sec()));
+    /* FIX: Convert kernel ticks to seconds using the correct kernel macro boundaries */
+    uint32_t current_utc = (uint32_t)(s64_BaseUtcEpoch + (elapsed_ticks / CONFIG_SYS_CLOCK_TICKS_PER_SEC));
     
     k_mutex_unlock(&time_mutex);
     return current_utc;
 }
 
 /**
- * @brief Extracts the number of minutes elapsed in the current local day, accounting 
- * for the configurable field Time Zone offset variable.
+ * @brief Extracts the number of minutes elapsed in the current local day
  */
 uint16_t app_time_get_local_minutes_of_day(void)
 {
@@ -90,10 +90,10 @@ uint16_t app_time_get_local_minutes_of_day(void)
         return 0;
     }
 
-    /* 1. Apply field timezone offset constraints (provided in total minutes) */
+    /* Apply field timezone offset constraints (provided in total minutes) */
     int64_t local_timestamp = (int64_t)current_utc + ((int64_t)gst_ConfigData.s16_TimeZoneOffset * 60);
 
-    /* 2. Break down the localized timestamp to isolate minutes since midnight */
+    /* Break down the localized timestamp to isolate minutes since midnight */
     uint32_t seconds_in_day = (uint32_t)(local_timestamp % 86400ULL);
     uint16_t local_minutes_of_day = (uint16_t)(seconds_in_day / 60);
 
@@ -113,18 +113,15 @@ bool app_time_is_within_energy_saving_window(void)
     uint16_t start_min = gst_ConfigData.energy_save_para.u16_StartMinutes;
     uint16_t end_min = gst_ConfigData.energy_save_para.u16_EndMinutes;
 
-    /* Handle standard disabled or unconfigured flag tags */
     if (start_min == 0xFFFF || end_min == 0xFFFF) {
         return false;
     }
 
-    /* Condition 1: Safe handling for standard daytime intervals (e.g., 08:00 to 17:00) */
     if (start_min < end_min) {
         if (current_min >= start_min && current_min < end_min) {
             return true;
         }
     } 
-    /* Condition 2: Handling for intervals that cross midnight (e.g., 22:00 to 06:00) */
     else {
         if (current_min >= start_min || current_min < end_min) {
             return true;
@@ -136,55 +133,39 @@ bool app_time_is_within_energy_saving_window(void)
 
 static void time_supervisor_work_handler(struct k_work *work)
 {
-    /* 2. Reschedule this check to execute again in exactly 1 minute.
-     * The device sleeps completely during this 60-second window. */
+    /* Re-schedule check first to ensure continuity */
     k_work_schedule(&time_supervisor_work, K_SECONDS(60));
 
     if (bool_IsTimeSynchronized) {
-
         uint32_t current_live_time = app_time_get_utc_epoch();
-
         gst_DynamicData.mu32_CurrentTime = current_live_time;
 
         /* Continuously store a backup copy of the time parameters into retained RAM */
-        static_retained_time.u32_LastSavedUtcEpoch = app_time_get_utc_epoch();
+        static_retained_time.u32_LastSavedUtcEpoch = current_live_time;
         static_retained_time.s64_LastSavedUptimeMs = k_uptime_get();
         static_retained_time.u32_MagicMarker = TIME_MAGIC_VALIDATED;
     }
-    else{
-
+    else {
         return;
     }
 
+    #if IS_ENABLED(CONFIG_ENERGY_SAVE_MODE_LOGIC_ENABLED)
     static bool Advtflag = false;
-
-    /* 1. Check if the eco power-saving parameters apply */
+    
     if (app_time_is_within_energy_saving_window()) {
-        
         LOG_INF("Device is inside Energy Saving frame window. Applying Eco profile rules.");
 
-        if(!Advtflag)
-        {
-            //ble_adv_custom_stop();
-            //app_ui_request_broadcast(APP_UI_REQUEST_FMDN_ADV_MODE_CHANGE);
-            //ble_adv_custom_update_interval(gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval, gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval+10);
-            //ble_adv_custom_start();
-
+        if (!Advtflag) {
+            ble_adv_custom_stop();
             Advtflag = true;
         }
-
     } else {
-
-        if(Advtflag)
-        {
-            //ble_adv_custom_stop();
-            //app_ui_request_broadcast(APP_UI_REQUEST_FMDN_ADV_MODE_CHANGE);
-            //ble_adv_custom_update_interval(gst_ConfigData.mu16_AdvertismentInterval, gst_ConfigData.mu16_AdvertismentInterval+10);
-            //ble_adv_custom_start();
-
+        if (Advtflag) {
+            ble_adv_custom_start();
             Advtflag = false;
         }
     }
+    #endif
 }
 
 void app_time_manager_boot_recover(void)
@@ -192,9 +173,7 @@ void app_time_manager_boot_recover(void)
     k_mutex_lock(&time_mutex, K_FOREVER);
 
     if (static_retained_time.u32_MagicMarker == TIME_MAGIC_VALIDATED) {
-        /* Success! The device restarted, but RAM remained intact.
-         * Calculate an estimate of the time lost during the hardware reset sequence.
-         * Typically, an nRF52 boot cycle takes roughly 50 to 150 milliseconds. */
+        /* Calculate an estimate of the time lost during the hardware reset sequence */
         uint32_t estimated_boot_loss_sec = 1; 
 
         s64_BaseUtcEpoch = (int64_t)static_retained_time.u32_LastSavedUtcEpoch + estimated_boot_loss_sec;
@@ -213,12 +192,8 @@ void app_time_manager_boot_recover(void)
 void app_time_activities_init(void)
 {
     app_time_manager_boot_recover();
-
     k_work_init_delayable(&time_supervisor_work, time_supervisor_work_handler);
     
     /* Fire off the first evaluation cycle */
     k_work_schedule(&time_supervisor_work, K_NO_WAIT);
 }
-
-
-

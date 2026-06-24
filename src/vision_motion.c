@@ -14,6 +14,9 @@
 #include "app_vision_production.h"
 
 #include <zephyr/logging/log.h>
+
+#if IS_ENABLED(CONFIG_I2C)
+
 LOG_MODULE_DECLARE(lis3dh, LOG_LEVEL_INF);
 
 /* LIS3DH I2C address (SA0 = 0 => 0x18, SA0 = 1 => 0x19) */
@@ -252,3 +255,5 @@ int lis3dh_powerdown(void)
     
     return 0;
 }
+
+#endif  //IS_ENABLED(CONFIG_I2C)

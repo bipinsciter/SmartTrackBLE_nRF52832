@@ -59,11 +59,11 @@ K_MUTEX_DEFINE(svc_mutex);
 /* Kernel Work Queue Structures */
 K_WORK_DEFINE(parse_and_reply_work, ble_parse_and_reply_work_handler);
 
-#ifdef AUTHORIZATION_LOGIC
+#if IS_ENABLED(CONFIG_AUTHORIZATION_LOGIC_ENABLED)
 static struct k_work_delayable authorisation_timout_work;
 #endif
 
-#ifdef DISC_FROM_DEVICE
+#if IS_ENABLED(CONFIG_BLE_CONNECTION_TIMEOUT_ENABLED)
 static struct k_work_delayable connection_timout_work;
 #endif
 
@@ -135,7 +135,7 @@ BT_GATT_SERVICE_DEFINE(custom_svc,
     BT_GATT_CCC(cccd_changed_cb, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
 );
 
-#ifdef AUTHORIZATION_LOGIC
+#if IS_ENABLED(CONFIG_AUTHORIZATION_LOGIC_ENABLED)
 static void authorisation_timout_work_handler(struct k_work *work)
 {
     LOG_WRN("Authorization Timeout");
@@ -143,7 +143,7 @@ static void authorisation_timout_work_handler(struct k_work *work)
 }
 #endif
 
-#ifdef DISC_FROM_DEVICE
+#if IS_ENABLED(CONFIG_BLE_CONNECTION_TIMEOUT_ENABLED)
 static void connection_timout_work_handler(struct k_work *work)
 {
     LOG_INF("Connection inactivity timeout");
@@ -187,7 +187,7 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
     //LOG_HEXDUMP_INF(temp_buf, current_data_len, "Command Payload:");
     memset(local_reply_buf, 0, sizeof(local_reply_buf));
     
-    #ifdef AUTHORIZATION_LOGIC 
+    #if IS_ENABLED(CONFIG_AUTHORIZATION_LOGIC_ENABLED)
     if (!bool_UserAuthorization) 
     {
         if (temp_buf[COMMAND_ID] != PROVIDE_PASSWORD) 
@@ -210,7 +210,7 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
                 bool_UserAuthorization = true;
                 k_work_cancel_delayable(&authorisation_timout_work);      
 
-                #ifdef DISC_FROM_DEVICE
+                #if IS_ENABLED(CONFIG_BLE_CONNECTION_TIMEOUT_ENABLED)
                 k_work_schedule(&connection_timout_work, K_SECONDS(DISCC_TIME_SEC));   
                 #endif
 
@@ -233,32 +233,13 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
     else
     #endif  
     {
-        #ifdef DISC_FROM_DEVICE
+        #if IS_ENABLED(CONFIG_BLE_CONNECTION_TIMEOUT_ENABLED)
         /* Postpone the connectivity timer window */
         k_work_reschedule(&connection_timout_work, K_SECONDS(DISCC_TIME_SEC));
         #endif
 
         switch (temp_buf[COMMAND_ID]) 
         {
-            case DEEP_SLEEP_CONTROL:    
-                LOG_INF("Command Code Received: DEEP_SLEEP_CONTROL");
-                if (temp_buf[1] == DEEP_SLEEP_ENABLE || temp_buf[1] == DEEP_SLEEP_DISABLE) {
-                    gst_ConfigData.mu8_DeepSleepControl = temp_buf[1];
-                    bool_ConfigDataWrite = true;
-                    local_reply_buf[0] = SUCCESS; 
-                    response_len = 1;
-                } else if (temp_buf[1] == BAT_LVL_RST) {
-                    gst_DynamicData.f32_RemainingBatCap = FULL_BAT_CAPACITY_uAH;
-                    bool_DynamicDataWrite = true;
-                    local_reply_buf[0] = SUCCESS; 
-                    response_len = 1;
-                } else {
-                    local_reply_buf[0] = INVALID_SUB_COMMAND; 
-                    response_len = 1;
-                    bool_disconnect = true;
-                }           
-                break;
-                
             case SET_REAL_TIME_CLOCK:
                 LOG_INF("Command Code Received: SET_REAL_TIME_CLOCK"); 
                 memcpy((uint8_t*)&gst_DynamicData.mu32_CurrentTime, &temp_buf[1], sizeof(gst_DynamicData.mu32_CurrentTime));
@@ -323,37 +304,8 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
                 }
                 response_len = (local_reply_buf[0] == SUCCESS) ? 1 : 2;
                 break;
-            
-            case SET_GLOBAL_TX_POW:
-                if (temp_buf[1] == GLOBAL_TX_POW_CONFIG) {
-                    LOG_INF("Command Code Received: SET_GLOBAL_TX_POW");
-                    gst_ConfigData.mu8_TxPow = temp_buf[3];
-                    bool_ConfigDataWrite = true;  
-                    local_reply_buf[0] = SUCCESS;
-                    response_len = 1;
-                } else {
-                    local_reply_buf[0] = FAIL;
-                    local_reply_buf[1] = INVALID_SUB_COMMAND; 
-                    response_len = 2;
-                    bool_disconnect = true;
-                }
-                break;
 
-            case READ_GLOBAL_TX_POW:
-                if (temp_buf[1] == GLOBAL_TX_POW_CONFIG) {
-                    LOG_INF("Command Code Received: READ_GLOBAL_TX_POW"); 
-                    local_reply_buf[0] = SUCCESS;
-                    local_reply_buf[1] = GLOBAL_TX_POW_CONFIG;
-                    local_reply_buf[2] = GLOBAL_TX_POW_CONFIG;
-                    local_reply_buf[3] = gst_ConfigData.mu8_TxPow;
-                    response_len = 4;
-                } else {
-                    local_reply_buf[0] = FAIL;
-                    local_reply_buf[1] = INVALID_SUB_COMMAND; 
-                    response_len = 2;
-                    bool_disconnect = true;
-                }
-                break;  
+            #if IS_ENABLED(CONFIG_LIS3DH_SENSOR_ENABLED)
 
             case SET_SENSOR_THRESHOLD:  
                 LOG_INF("Command Code Received: SET_SENSOR_THRESHOLD");
@@ -375,6 +327,8 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
                 memcpy(&local_reply_buf[4], (uint8_t*)&gst_ConfigData.mu16_AdvertismentInterval, sizeof(gst_ConfigData.mu16_AdvertismentInterval));
                 response_len = 6;
                 break;  
+
+            #endif
 
             case SET_ENERGY_SAVE_TIME:
                 if (temp_buf[1] == GLOBAL_ENERGY_SAVE_CONFIG1) {
@@ -400,37 +354,6 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
                 response_len = 5;
                 break;  
 
-            case SET_INSIGMA_FRAME_POWER_SAVING_PARA:   
-                if (temp_buf[1] == 1) {
-                    LOG_INF("Command Code Received: SET_INSIGMA_FRAME_POWER_SAVING_PARA");
-                    memcpy((uint8_t*)&gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval, &temp_buf[2], sizeof(gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval));
-                    memcpy((uint8_t*)&gst_ConfigData.energy_save_para.mu8_EnergySavingGlobalTxPow, &temp_buf[4], sizeof(gst_ConfigData.energy_save_para.mu8_EnergySavingGlobalTxPow));
-                    bool_ConfigDataWrite = true;  
-                    local_reply_buf[0] = SUCCESS; 
-                    response_len = 1;
-                } else {
-                    local_reply_buf[0] = FAIL;
-                    local_reply_buf[1] = INVALID_SUB_COMMAND; 
-                    response_len = 2;
-                    bool_disconnect = true;
-                }
-                break;
-
-            case READ_INSIGMA_FRAME_POWER_SAVING_PARA:   
-                if (temp_buf[1] == 1) {
-                    LOG_INF("Command Code Received: READ_INSIGMA_FRAME_POWER_SAVING_PARA");
-                    local_reply_buf[0] = SUCCESS; 
-                    memcpy(&local_reply_buf[1], (uint8_t*)&gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval, sizeof(gst_ConfigData.energy_save_para.mu16_EnergySavingAdvInterval));
-                    memcpy(&local_reply_buf[3], (uint8_t*)&gst_ConfigData.energy_save_para.mu8_EnergySavingGlobalTxPow, sizeof(gst_ConfigData.energy_save_para.mu8_EnergySavingGlobalTxPow));
-                    response_len = 4;
-                } else {
-                    local_reply_buf[0] = FAIL;
-                    local_reply_buf[1] = INVALID_SUB_COMMAND; 
-                    response_len = 2;
-                    bool_disconnect = true;
-                }
-                break;
-
             case RESTART_DEVICE:
                 LOG_INF("Command Code Received: RESTART_DEVICE");      
                 bool_disconnect = true;
@@ -446,7 +369,7 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
                 bool_disconnect = true;
                 //bool_restart = true;
 
-                app_dfu_enter_mode_custom();
+                //app_dfu_enter_mode_custom();
 
                 break;
 
@@ -510,7 +433,7 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
 
     /* FIX: Let notifications clear the air buffers safely before dropping link or rebooting */
     if (bool_disconnect || bool_restart) {
-        #ifdef DISC_FROM_DEVICE
+        #if IS_ENABLED(CONFIG_BLE_CONNECTION_TIMEOUT_ENABLED)
         k_work_cancel_delayable(&connection_timout_work);
         #endif
 
@@ -609,7 +532,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
             bool_UserAuthorization = false;
             
-            #ifdef AUTHORIZATION_LOGIC
+            #if IS_ENABLED(CONFIG_AUTHORIZATION_LOGIC_ENABLED)
             /* CRITICAL FIX: Simply schedule the timers here; initialization happens at boot */
             k_work_schedule(&authorisation_timout_work, K_SECONDS(AUTHO_TOUT_TIME_SEC));
             #endif
@@ -643,11 +566,11 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
         start_advt = true;
 
         bool_UserAuthorization = false;
-        #ifdef AUTHORIZATION_LOGIC
+        #if IS_ENABLED(CONFIG_AUTHORIZATION_LOGIC_ENABLED)
         k_work_cancel_delayable(&authorisation_timout_work);
         #endif
 
-        #ifdef DISC_FROM_DEVICE
+        #if IS_ENABLED(CONFIG_BLE_CONNECTION_TIMEOUT_ENABLED)
         k_work_cancel_delayable(&connection_timout_work);
         #endif
     }
@@ -676,12 +599,12 @@ int ble_custom_service_init(void)
     write_len = 0;
     notify_len = 0;
     
-    #ifdef AUTHORIZATION_LOGIC
+    #if IS_ENABLED(CONFIG_AUTHORIZATION_LOGIC_ENABLED)
     /* CRITICAL FIX: Safe unified initialization of delayable timers at boot */
     k_work_init_delayable(&authorisation_timout_work, authorisation_timout_work_handler);
     #endif
 
-    #ifdef DISC_FROM_DEVICE
+    #if IS_ENABLED(CONFIG_BLE_CONNECTION_TIMEOUT_ENABLED)
     k_work_init_delayable(&connection_timout_work, connection_timout_work_handler);
     #endif
 

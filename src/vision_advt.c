@@ -18,7 +18,7 @@ LOG_MODULE_REGISTER(vision_advt, LOG_LEVEL_INF);
 /* -------------------------------------------------------------------- */
 /* 1. Static/Global Private Instances                                   */
 /* -------------------------------------------------------------------- */
-#define COMPANY_ID 0x0437
+#define COMPANY_ID 0x0F2C       //Vision Group Inc.
 
 /* FIX: Unified into a single source-of-truth active structure block */
 static ble_service_data_t active_svc_data;

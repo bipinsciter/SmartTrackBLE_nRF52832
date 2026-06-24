@@ -1,0 +1,14 @@
+#
+# Copyright (c) 2024 Nordic Semiconductor
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+config AUTHORIZATION_LOGIC_ENABLED
+	bool "Authorisation enabled while BLE communication"
+	default y
+
+config BLE_CONNECTION_TIMEOUT_ENABLED
+	bool "BLE communication timout disconnection"
+	default y
+

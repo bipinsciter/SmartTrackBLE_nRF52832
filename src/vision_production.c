@@ -290,17 +290,6 @@ void ProcessProductionMsg(const uint8_t *data, size_t len)
 
                 break;
                 
-            case TOOL_PUT_DEEP_SLEEP_CMD:
-                gst_ConfigData.mu8_DeepSleepControl = 0;
-                bool_ConfigDataWrite = true;
-
-                tx_buf[0] = 3;
-                tx_buf[1] = TOOL_PUT_DEEP_SLEEP_CMD | 0x80;
-                tx_buf[2] = SUCCESS;
-                tx_buf[3] = FindChecksum(tx_buf, 3);
-                app_uart_transmit(tx_buf, 4);        
-                break;
-                
             case TOOL_SET_DEFULT_PASSW:
                 memset(gst_ProductionData.mu8ar_Password, 0, sizeof(gst_ProductionData.mu8ar_Password));
                 memcpy(&gst_ProductionData.mu8ar_Password, &data[2], sizeof(gst_ProductionData.mu8ar_Password));

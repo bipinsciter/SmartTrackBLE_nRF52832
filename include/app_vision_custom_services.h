@@ -11,10 +11,6 @@ extern "C" {
 #endif
 
 //---------------------------------------------------------
-#define AUTHORIZATION_LOGIC
-#define ENERGY_SAVE_MODE_LOGIC
-#define DISC_FROM_DEVICE
-//---------------------------------------------------------
 #define DEEP_SLEEP_ENABLE						0
 #define DEEP_SLEEP_DISABLE						1
 #define BAT_LVL_RST								2

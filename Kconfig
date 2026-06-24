@@ -22,6 +22,9 @@ endchoice
 rsource "src/Kconfig.dfu"
 rsource "src/ui/Kconfig.ui"
 rsource "src/Kconfig.battery"
+rsource "src/Kconfig.motion"
+rsource "src/Kconfig.time"
+rsource "src/Kconfig.ble"
 
 config SETTINGS
 	default y
