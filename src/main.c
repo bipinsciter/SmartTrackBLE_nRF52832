@@ -886,7 +886,7 @@ static void init_work_handle(struct k_work *w)
 	app_time_activities_init();
 	app_uart_boot_sequence_start();
 
-    #if IS_ENABLED(CONFIG_LIS3DH_SENSOR_ENABLED)
+    #if IS_ENABLED(CONFIG_LIS3DH_SENSOR_ENABLED)  &&  IS_ENABLED(CONFIG_I2C)
     err = lis3dh_setup(gst_ConfigData.mu8_Movement_INT_THS, gst_ConfigData.mu8_Movement_INT_TIME);
     if (err) {
         LOG_ERR("LIS3DH Configuration failed (err %d)", err);

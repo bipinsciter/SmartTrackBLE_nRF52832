@@ -101,6 +101,10 @@
     status = "disabled";
 };
 
+&button1 {
+    status = "disabled";
+};
+
 &button2 {
     status = "disabled";
 };
@@ -126,24 +130,20 @@
 	status = "disabled";
 };
 
+&nfct {
+	status = "disabled";
+};
+
 &uicr {
     nfct-pins-as-gpios;
 };
 
 /*
-&button1 {
-    status = "disabled";
-};
-
 &i2c0 {
     status = "disabled";
 };
 
 &pwm0 {
-    status = "disabled";
-};
-
-&adc {
     status = "disabled";
 };
 

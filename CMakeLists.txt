@@ -28,7 +28,7 @@ target_sources(app PRIVATE
   src/common.c
 )
 
-if (CONFIG_LIS3DH_SENSOR_ENABLED)
+if (CONFIG_LIS3DH_SENSOR_ENABLED AND CONFIG_I2C)
   target_sources(app PRIVATE src/vision_motion.c)
 endif()
 

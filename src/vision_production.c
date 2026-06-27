@@ -11,7 +11,7 @@
 #include <zephyr/pm/device.h>
 #include <zephyr/sys/reboot.h>
 #include <string.h>
-
+#include <app_version.h>
 #include "app_vision_production.h"
 #include "app_nvs_storage.h"
 #include "app_vision_advt.h"
@@ -398,8 +398,8 @@ void ProcessProductionMsg(const uint8_t *data, size_t len)
             case TOOL_READ_FW_VER_CMD:
                 tx_buf[0] = 6;
                 tx_buf[1] = TOOL_READ_FW_VER_CMD | 0x80;
-                tx_buf[2] = FIRMWARE_MAJOR;
-                tx_buf[3] = FIRMWARE_MINOR;
+                tx_buf[2] = APP_VERSION_MAJOR;
+                tx_buf[3] = APP_VERSION_MINOR;
                 tx_buf[4] = HARDWARE_MAJOR;
                 tx_buf[5] = HARDWARE_MINOR;         
                 tx_buf[6] = FindChecksum(tx_buf, 6);

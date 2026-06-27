@@ -156,13 +156,13 @@ void read_raw_factory_mac(uint8_t *mac_out)
     /* Copy upper 16-bits */
     uint32_t addr_high = NRF_FICR->DEVICEADDR[1];
 
-    mac_out[0] = (uint8_t)(addr_low & 0xFF);
-    mac_out[1] = (uint8_t)((addr_low >> 8) & 0xFF);
-    mac_out[2] = (uint8_t)((addr_low >> 16) & 0xFF);
-    mac_out[3] = (uint8_t)((addr_low >> 24) & 0xFF);
-    mac_out[4] = (uint8_t)(addr_high & 0xFF);
+    mac_out[5] = (uint8_t)(addr_low & 0xFF);
+    mac_out[4] = (uint8_t)((addr_low >> 8) & 0xFF);
+    mac_out[3] = (uint8_t)((addr_low >> 16) & 0xFF);
+    mac_out[2] = (uint8_t)((addr_low >> 24) & 0xFF);
+    mac_out[1] = (uint8_t)(addr_high & 0xFF);
     /* For standard BLE compliance, enforce the two MSBs of index 5 as 11 */
-    mac_out[5] = (uint8_t)((addr_high >> 8) & 0xFF) | 0xC0; 
+    mac_out[0] = (uint8_t)((addr_high >> 8) & 0xFF) | 0xC0; 
 
     LOG_INF("Raw Hardware MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
            mac_out[5], mac_out[4], mac_out[3], mac_out[2], mac_out[1], mac_out[0]);

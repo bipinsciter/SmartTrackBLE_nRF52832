@@ -10,6 +10,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/reboot.h>
 #include <string.h>
+#include <app_version.h>
 
 #include "app_vision_custom_services.h"
 #include "app_vision_advt.h"
@@ -215,8 +216,8 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
                 #endif
 
                 local_reply_buf[0] = SUCCESS;
-                local_reply_buf[1] = FIRMWARE_MAJOR;
-                local_reply_buf[2] = FIRMWARE_MINOR;  
+                local_reply_buf[1] = APP_VERSION_MAJOR;
+                local_reply_buf[2] = APP_VERSION_MINOR;  
                 local_reply_buf[3] = 0xFF;
                 local_reply_buf[4] = 0xFF;                
                 local_reply_buf[12] = HARDWARE_MAJOR;
@@ -305,8 +306,7 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
                 response_len = (local_reply_buf[0] == SUCCESS) ? 1 : 2;
                 break;
 
-            #if IS_ENABLED(CONFIG_LIS3DH_SENSOR_ENABLED)
-
+            #if IS_ENABLED(CONFIG_LIS3DH_SENSOR_ENABLED)  &&  IS_ENABLED(CONFIG_I2C)
             case SET_SENSOR_THRESHOLD:  
                 LOG_INF("Command Code Received: SET_SENSOR_THRESHOLD");
                 gst_ConfigData.mu8_Movement_INT_THS = temp_buf[6];  
@@ -390,8 +390,8 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
             case READ_FIRMWARE_DETAIL:
                 LOG_INF("Command Code Received: GET_FIRMWARE_DETAIL"); 
                 local_reply_buf[0] = SUCCESS;
-                local_reply_buf[1] = FIRMWARE_MAJOR;
-                local_reply_buf[2] = FIRMWARE_MINOR;
+                local_reply_buf[1] = APP_VERSION_MAJOR;
+                local_reply_buf[2] = APP_VERSION_MINOR;
                 response_len = 3;
                 break;
 

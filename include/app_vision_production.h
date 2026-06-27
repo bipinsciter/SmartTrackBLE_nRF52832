@@ -49,8 +49,6 @@
 #define INVALID_PROD_COMMAND			0x02
 
 /* Static Firmware Tags */
-#define FIRMWARE_MAJOR                  1
-#define FIRMWARE_MINOR                  0
 #define HARDWARE_MAJOR                  1
 #define HARDWARE_MINOR                  0
 
