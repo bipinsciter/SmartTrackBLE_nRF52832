@@ -9,16 +9,11 @@
 #include <zephyr/kernel.h>
 
 #include <zephyr/bluetooth/uuid.h>
-#include <bluetooth/adv_prov.h>
-
-#include <bluetooth/services/fast_pair/fast_pair.h>
-#include <bluetooth/services/fast_pair/fmdn.h>
 
 #include <zephyr/mgmt/mcumgr/transport/smp_bt.h>
 
 #include "app_dfu.h"
 #include "app_factory_reset.h"
-#include "app_fp_adv.h"
 #include "app_ui.h"
 
 #include <zephyr/logging/log.h>
@@ -27,10 +22,7 @@ LOG_MODULE_DECLARE(fp_fmdn, LOG_LEVEL_INF);
 /* DFU mode timeout in minutes. */
 #define DFU_MODE_TIMEOUT_MIN (2)
 
-static const struct bt_data data = BT_DATA_BYTES(BT_DATA_UUID128_ALL, SMP_BT_SVC_UUID_VAL);
 static bool dfu_mode;
-
-APP_FP_ADV_TRIGGER_REGISTER(fp_adv_trigger_dfu, "dfu");
 
 static void dfu_mode_timeout_work_handle(struct k_work *w);
 static K_WORK_DELAYABLE_DEFINE(dfu_mode_timeout_work, dfu_mode_timeout_work_handle);
@@ -43,8 +35,6 @@ BUILD_ASSERT((APP_VERSION_MAJOR == CONFIG_BT_FAST_PAIR_FMDN_DULT_FIRMWARE_VERSIO
 
 static void dfu_mode_change(bool new_mode)
 {
-	enum app_fp_adv_mode pre_request_fp_adv_mode = app_fp_adv_mode_get();
-
 	if (dfu_mode == new_mode) {
 		return;
 	}
@@ -52,16 +42,6 @@ static void dfu_mode_change(bool new_mode)
 	LOG_INF("DFU: mode %sabled", new_mode ? "en" : "dis");
 
 	dfu_mode = new_mode;
-
-	app_fp_adv_request(&fp_adv_trigger_dfu, dfu_mode);
-
-	/* Ensure that the advertising payload is updated if the advertising was already
-	 * enabled before the advertising request.
-	 */
-	if ((pre_request_fp_adv_mode == APP_FP_ADV_MODE_DISCOVERABLE) ||
-	    (pre_request_fp_adv_mode == APP_FP_ADV_MODE_NOT_DISCOVERABLE)) {
-		app_fp_adv_payload_refresh();
-	}
 
 	app_ui_state_change_indicate(APP_UI_STATE_DFU_MODE, dfu_mode);
 }
@@ -89,60 +69,6 @@ bool app_dfu_bt_gatt_operation_allow(const struct bt_uuid *uuid)
 	return true;
 }
 
-/* Due to using legacy advertising set size, add SMP UUID to either AD or SD,
- * depending on the space availability related to the advertising mode.
- * Otherwise, the advertising set size would be exceeded and the advertising
- * would not start.
- * The SMP UUID can be added only to one of the data sets.
- */
-
-static int get_ad_data(struct bt_data *ad, const struct bt_le_adv_prov_adv_state *state,
-		    struct bt_le_adv_prov_feedback *fb)
-{
-	ARG_UNUSED(state);
-	ARG_UNUSED(fb);
-
-	enum app_fp_adv_mode current_fp_adv_mode = app_fp_adv_mode_get();
-
-	if (!dfu_mode) {
-		return -ENOENT;
-	}
-
-	if (current_fp_adv_mode != APP_FP_ADV_MODE_DISCOVERABLE) {
-		return -ENOENT;
-	}
-
-	*ad = data;
-
-	return 0;
-}
-
-static int get_sd_data(struct bt_data *sd, const struct bt_le_adv_prov_adv_state *state,
-		    struct bt_le_adv_prov_feedback *fb)
-{
-	ARG_UNUSED(state);
-	ARG_UNUSED(fb);
-
-	enum app_fp_adv_mode current_fp_adv_mode = app_fp_adv_mode_get();
-
-	if (!dfu_mode) {
-		return -ENOENT;
-	}
-
-	if (current_fp_adv_mode != APP_FP_ADV_MODE_NOT_DISCOVERABLE) {
-		return -ENOENT;
-	}
-
-	*sd = data;
-
-	return 0;
-}
-
-/* Used in discoverable adv */
-BT_LE_ADV_PROV_AD_PROVIDER_REGISTER(smp_ad, get_ad_data);
-
-/* Used in the not-discoverable adv */
-BT_LE_ADV_PROV_SD_PROVIDER_REGISTER(smp_sd, get_sd_data);
 
 static void dfu_mode_action_handle(void)
 {

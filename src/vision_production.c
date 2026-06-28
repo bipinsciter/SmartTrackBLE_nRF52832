@@ -109,14 +109,6 @@ static void uart_async_callback(const struct device *dev,
 /* -------------------------------------------------------------------- */
 static void uart_lifetime_timeout_handler(struct k_work *work)
 {
-    /*
-    tx_buf[0] = '1';
-    tx_buf[1] = '2';
-    tx_buf[2] = '3';
-    tx_buf[3] = '4';
-    app_uart_transmit(tx_buf, 4);
-    k_sleep(K_MSEC(500));
-    */
     app_uart_disable();
 }
 

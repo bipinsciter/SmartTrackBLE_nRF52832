@@ -109,7 +109,7 @@ static uint8_t gu8_Volt2PercentTable(int32_t BatVolt)
     
     while (lu8_i) {
         lu8_i--;
-        if (BatVolt > gu16_voltTable[lu8_i]) {
+        if (BatVolt >= gu16_voltTable[lu8_i]) {
             return gu8_pergTable[lu8_i];
         }
     }
@@ -219,13 +219,10 @@ static void activity_battery_percentage_work_handler(struct k_work *work)
     if (gu8_ActBasedBattPercent != gu8_LastActBasedBattPercent) {
         gu8_LastActBasedBattPercent = gu8_ActBasedBattPercent;
 
-        k_mutex_unlock(&battery_mutex);
-
         write_nvs_data(DYNAMIC_DATA_KEY, &gst_DynamicData, sizeof(st_DynamicData_t));
-    } else {
-        k_mutex_unlock(&battery_mutex);
     }
-
+    k_mutex_unlock(&battery_mutex);
+    
     LOG_INF("ActivityBasedPercentage: %d %%", gu8_ActBasedBattPercent);
 
     k_work_schedule(&activity_battery_percentage_work, K_MINUTES(CONFIG_APP_BATTERY_PERCENTAGE_CAL_INTERVAL));

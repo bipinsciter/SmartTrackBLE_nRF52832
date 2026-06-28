@@ -366,10 +366,10 @@ static void ble_parse_and_reply_work_handler(struct k_work *work)
                 LOG_INF("Command Code Received: PUT_DEVICE_IN_OTA_DFU_MODE");
                 local_reply_buf[0] = SUCCESS; 
                 response_len = 1;
-                bool_disconnect = true;
+                //bool_disconnect = true;
                 //bool_restart = true;
 
-                //app_dfu_enter_mode_custom();
+                app_dfu_enter_mode_custom();
 
                 break;
 
